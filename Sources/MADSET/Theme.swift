@@ -17,6 +17,8 @@ enum Theme {
     static let waveMid = NSColor(srgbRed: 0.98, green: 0.62, blue: 0.16, alpha: 0.9)
     static let waveHigh = NSColor(white: 0.95, alpha: 0.85)
     static let kick = NSColor(srgbRed: 1.0, green: 0.26, blue: 0.42, alpha: 0.9)
+    static let playhead = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.2, alpha: 1)
+    static let swap = NSColor(srgbRed: 0.98, green: 0.62, blue: 0.16, alpha: 1)
 
     static func color(for phase: Phase) -> NSColor {
         switch phase {

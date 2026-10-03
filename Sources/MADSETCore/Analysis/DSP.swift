@@ -6,6 +6,12 @@ enum DSP {
 
     /// Butterworth-style cascade of `sections` identical RBJ biquads (Q = 1/sqrt 2).
     static func filter(_ x: [Float], kind: FilterKind, cutoff: Double, sampleRate: Double, sections: Int) -> [Float] {
+        var biquad = cascade(kind, cutoff: cutoff, sampleRate: sampleRate, sections: sections)
+        return biquad.apply(input: x)
+    }
+
+    /// Stateful filter of `sections` identical RBJ biquads (Q = 1/sqrt 2); two sections make a Linkwitz–Riley crossover.
+    static func cascade(_ kind: FilterKind, cutoff: Double, sampleRate: Double, sections: Int) -> vDSP.Biquad<Float> {
         let w0 = 2 * Double.pi * cutoff / sampleRate
         let q = 0.5.squareRoot()
         let alpha = sin(w0) / (2 * q)
@@ -18,10 +24,10 @@ enum DSP {
         }
         let section = [b.0 / a0, b.1 / a0, b.2 / a0, -2 * cosW / a0, (1 - alpha) / a0]
         let coefficients = Array([[Double]](repeating: section, count: sections).joined())
-        guard var biquad = vDSP.Biquad(coefficients: coefficients, channelCount: 1, sectionCount: vDSP_Length(sections), ofType: Float.self) else {
+        guard let biquad = vDSP.Biquad(coefficients: coefficients, channelCount: 1, sectionCount: vDSP_Length(sections), ofType: Float.self) else {
             preconditionFailure("Invalid biquad coefficients for cutoff \(cutoff)")
         }
-        return biquad.apply(input: x)
+        return biquad
     }
 
     /// Mean square of consecutive, non-overlapping frames of `hop` samples.

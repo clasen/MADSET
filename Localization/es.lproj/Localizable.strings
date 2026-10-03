@@ -1,0 +1,63 @@
+/* MADSET — Spanish (Rioplatense). Keys are the English strings used in code. */
+
+/* Window and toolbar */
+"Drop tracks or folders here" = "Arrastrá temas o carpetas acá";
+"MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed." = "MP3, AIFF, WAV, FLAC o M4A. Se analizan tempo, beatgrid, kick, fases y key.";
+"Import" = "Importar";
+"Add tracks or folders to the end of the set (⌘I)" = "Agregar temas o carpetas al final del set (⌘I)";
+"Fit" = "Ajustar";
+"Show the whole set" = "Ver el set completo";
+"Empty set" = "Set vacío";
+"%lld tracks" = "%lld temas";
+"analyzing %lld…" = "analizando %lld…";
+"Add to Set" = "Agregar al set";
+"Playback is not available" = "La reproducción no está disponible";
+
+/* Menus */
+"Import Tracks…" = "Importar temas…";
+"Playback" = "Reproducción";
+"Play" = "Reproducir";
+"Pause" = "Pausa";
+"Back to Start" = "Volver al inicio";
+
+/* Transport and inspector */
+"Play (Space)" = "Reproducir (Espacio)";
+"Pause (Space)" = "Pausa (Espacio)";
+"%@ / %@" = "%@ / %@";
+"Tempo" = "Tempo";
+"auto" = "auto";
+"Auto" = "Auto";
+"Median tempo of the tracks. Change it to fix the set tempo." = "Tempo mediano de los temas. Cambialo para fijar el tempo del set.";
+"Follow the median tempo of the tracks" = "Seguir el tempo mediano de los temas";
+"Transition" = "Transición";
+"Bass swap" = "Bass swap";
+"Cue in" = "Cue in";
+"Cue out" = "Cue out";
+"%lld bars" = "%lld compases";
+"bar %lld" = "compás %lld";
+"Back to the automatic, phrase-aligned transition" = "Volver a la transición automática, alineada a las frases";
+"Select a track to edit its transition" = "Seleccioná un tema para editar su transición";
+
+/* Undo action names */
+"Reorder" = "Reordenar";
+"Remove Track" = "Quitar tema";
+"Change Tempo" = "Cambiar tempo";
+"Change Transition" = "Cambiar transición";
+"Move Bass Swap" = "Mover bass swap";
+"Change Cue In" = "Cambiar cue in";
+"Change Cue Out" = "Cambiar cue out";
+"Reset Transition" = "Restablecer transición";
+
+/* Track list and timeline */
+"Analyzing…" = "Analizando…";
+"Error: %@" = "Error: %@";
+"Mixed In Key says %lld BPM" = "Mixed In Key dice %lld BPM";
+"Stretched %@ to the set tempo" = "Estirado %@ al tempo del set";
+"Key detected by MADSET (no Mixed In Key tag)" = "Key detectada por MADSET (sin tag de Mixed In Key)";
+"Key from Mixed In Key" = "Key de Mixed In Key";
+
+/* Errors */
+"No rhythm found (a track without kick, or silence?)" = "No se encontró ritmo (¿tema sin kick o silencio?)";
+"Unsupported audio format" = "Formato de audio no soportado";
+"Could not decode: %@" = "No se pudo decodificar: %@";
+"Could not open the file" = "No se pudo abrir el archivo";

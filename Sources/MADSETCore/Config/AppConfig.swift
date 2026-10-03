@@ -16,12 +16,28 @@ public struct AppConfig: Sendable {
         public var waveformPointsPerSecond: Double
     }
 
+    public struct Playback: Sendable {
+        /// Rate tracks are decoded and mixed at.
+        public var sampleRate: Double
+        /// Frames mixed per render call.
+        public var blockFrames: Int
+        /// Audio rendered ahead of the playhead; also the delay before an edit is heard.
+        public var bufferSeconds: Double
+        /// Tracks starting within this many seconds of the playhead are decoded in advance.
+        public var prefetchSeconds: Double
+        /// Decoded tracks kept in memory (~150 MB each for a 7-minute track).
+        public var cachedSources: Int
+        /// Tempo of a set before any of its tracks is analyzed.
+        public var emptySetBPM: Double
+    }
+
     public struct Cache: Sendable {
         /// Folder inside ~/Library/Caches holding analysis results.
         public var folderName: String
     }
 
     public var analysis: Analysis
+    public var playback: Playback
     public var cache: Cache
 
     public static let current = AppConfig(
@@ -32,6 +48,14 @@ public struct AppConfig: Sendable {
             maxBPM: 175,
             phraseBars: 8,
             waveformPointsPerSecond: 100
+        ),
+        playback: Playback(
+            sampleRate: 44_100,
+            blockFrames: 1_024,
+            bufferSeconds: 0.35,
+            prefetchSeconds: 45,
+            cachedSources: 6,
+            emptySetBPM: 124
         ),
         cache: Cache(folderName: "MADSET/analysis")
     )

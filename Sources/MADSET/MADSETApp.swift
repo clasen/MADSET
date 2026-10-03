@@ -3,28 +3,32 @@ import SwiftUI
 
 @main
 struct MADSETApp: App {
-    @State private var store: SetStore
-
-    init() {
-        do {
-            _store = State(initialValue: try SetStore(config: .current))
-        } catch {
-            fatalError("Could not open the analysis cache: \(error)")
-        }
-    }
-
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environment(store)
+        DocumentGroup(newDocument: { SetDocument() }) { file in
+            ContentView(document: file.document)
                 .preferredColorScheme(.dark)
         }
-        .defaultSize(width: 1500, height: 860)
-        .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("Importar…") { store.importItems(ImportPanel.choose()) }
-                    .keyboardShortcut("o")
-            }
+        .defaultSize(width: 1500, height: 880)
+        .commands { SetCommands() }
+    }
+}
+
+private struct SetCommands: Commands {
+    @FocusedValue(\.setDocument) private var document
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Import Tracks…") { document?.importItems(ImportPanel.choose()) }
+                .keyboardShortcut("i")
+                .disabled(document == nil)
+        }
+        CommandMenu("Playback") {
+            Button(document?.isPlaying == true ? LocalizedStringKey("Pause") : LocalizedStringKey("Play")) { document?.togglePlayback() }
+                .keyboardShortcut(.space, modifiers: [])
+                .disabled(document == nil)
+            Button("Back to Start") { document?.seek(to: 0) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command])
+                .disabled(document == nil)
         }
     }
 }

@@ -9,7 +9,9 @@ Personal use: runs locally, never distributed, so GPL dependencies are acceptabl
 - Swift 6.2 tools / Swift 6 language mode, macOS 26+, Apple Silicon.
 - SwiftUI for the app shell and list, AppKit (`NSView`) for the timeline, AVFoundation for decoding,
   Accelerate (vDSP) for DSP.
-- Swift Package Manager only; no Xcode project. No third-party dependencies yet.
+- Swift Package Manager only; no Xcode project.
+- Rubber Band Library v4.0.0 (GPL-2.0-or-later) vendored unmodified in `Vendor/RubberBand`, built as the
+  `CRubberBand` C++ target through its single-file build. Real-time time-stretching for playback.
 
 ## Commands
 
@@ -30,7 +32,13 @@ Use it after touching anything in `Sources/MADSETCore/Analysis`. The reference l
 - `Sources/MADSETCore/` — everything testable: tags, decoding, analysis, cache, scanning.
   - `Config/AppConfig.swift` — the centralized configuration (see below).
   - `Analysis/` — `TrackAnalyzer` orchestrates `BeatTracker`, `StructureAnalyzer`, `KeyDetector`, `WaveformBuilder`.
-- `Sources/MADSET/` — the app: `SetStore` (state + analysis queue), list, `Timeline/` canvas.
+  - `Set/` — `SetEntry`/`SetLayout` (arrangement on the set's bar axis, automatic phase-aligned
+    transitions) and `SetFile` (the `.madset` JSON format).
+  - `Playback/` — `SetRenderer` mixes a layout block by block (stretch, DJ EQ, transition curves);
+    `SetPlayer` plays it through AVAudioEngine from a producer thread and a lock-free ring buffer.
+- `Sources/MADSET/` — the app: `SetDocument` (SwiftUI `DocumentGroup` document: arrangement, undo,
+  analysis queue, playback), list, transport, `Timeline/` canvas.
+- `Localization/<lang>.lproj/Localizable.strings` — UI translations, copied into the bundle by `bundle.sh`.
 - `Sources/MADSETBench/` — the benchmark CLI.
 - `Tests/MADSETCoreTests/` — tests; `Synth.swift` builds deterministic synthetic tracks.
 - Generated: `.build/`, `build/`. Analysis cache lives in `~/Library/Caches/MADSET/analysis`.
@@ -61,10 +69,17 @@ Agents commit only when asked. Branch from `main`; imperative, English commit me
 - **Phrase** — `phraseBars` bars (8); sections are aligned to phrases.
 - **Phase** — DJ section label: intro, groove, buildup, drop, breakdown, outro.
 - **Kick presence** — per bar, fraction of beats whose sub-band shape matches the track's kick template.
+- **Set tempo** — the global BPM every track is stretched to.
+- **Cue in / cue out** — first and last (exclusive) bar of a track that plays in the set.
+- **Overlap / transition** — bars a track plays over the previous one; **bass swap** — bar within the
+  overlap where the lows switch from the outgoing to the incoming track.
 - **MIK** — Mixed In Key; writes key (Camelot) and energy (1–10) into the tags.
 - **Camelot** — key notation 1A–12B (A minor, B major).
 
 ## Language
 
-Code, identifiers and comments in English. UI strings in Spanish (rioplatense). Responses to the
-user in Spanish.
+Code, identifiers and comments in English. The UI ships in English and Spanish (rioplatense): write UI
+strings in English (`Text("…")`, `String(localized:)`) and add the Spanish to
+`Localization/es.lproj/Localizable.strings`. To find missing translations, build with
+`-Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc <dir>` and compare the
+keys. Responses to the user in Spanish.

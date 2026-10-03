@@ -1,46 +1,58 @@
 import Foundation
 import MADSETCore
 
-/// A track as the timeline draws it: where it sits in the set and what to show.
+/// A track as the timeline draws it: its placement in the set and what to show.
 struct TimelineClip: Identifiable {
-    let id: Track.ID
-    let start: TimeInterval
-    let duration: TimeInterval
+    let placed: PlacedEntry
+    /// The following entry, whose transition shapes this clip's end.
+    let next: PlacedEntry?
+    let barDuration: TimeInterval
+    let isFirst: Bool
     let lane: Int
     let title: String
     let artist: String?
     let key: CamelotKey?
     let keyIsDetected: Bool
     let bpm: Double?
+    let setBPM: Double
     let energy: Int?
     let analysis: TrackAnalysis?
     let isPending: Bool
     let failure: String?
 
+    var id: Track.ID { placed.id }
+    var start: TimeInterval { Double(placed.startBar) * barDuration }
+    var duration: TimeInterval { Double(placed.lengthBars) * barDuration }
     var end: TimeInterval { start + duration }
     var center: TimeInterval { start + duration / 2 }
 
-    /// Lays the tracks out back to back, alternating lanes like two decks.
-    static func layout(_ tracks: [Track]) -> [TimelineClip] {
-        var cursor: TimeInterval = 0
-        return tracks.enumerated().compactMap { index, track in
-            guard let duration = track.duration else { return nil }
-            defer { cursor += duration }
+    /// Set time of one of the track's own bars.
+    func time(ofTrackBar bar: Double) -> TimeInterval { start + (bar - Double(placed.cueInBar)) * barDuration }
+
+    /// Tempo change applied to the track, in percent.
+    var stretchPercent: Double? { bpm.map { (setBPM / $0 - 1) * 100 } }
+
+    static func clips(for layout: SetLayout, tracks: [Track]) -> [TimelineClip] {
+        precondition(layout.entries.count == tracks.count, "Layout and tracks out of sync")
+        return zip(layout.entries, tracks).enumerated().map { index, pair in
+            let (placed, track) = pair
             var failure: String?
             if case .failed(let message) = track.status { failure = message }
             return TimelineClip(
-                id: track.id,
-                start: cursor,
-                duration: duration,
+                placed: placed,
+                next: index + 1 < layout.entries.count ? layout.entries[index + 1] : nil,
+                barDuration: layout.barDuration,
+                isFirst: index == 0,
                 lane: index % 2,
                 title: track.title,
                 artist: track.artist,
                 key: track.key,
                 keyIsDetected: track.keyIsDetected,
                 bpm: track.bpm,
+                setBPM: layout.bpm,
                 energy: track.tags.energy,
                 analysis: track.analysis,
-                isPending: track.status == .reading || track.status == .analyzing,
+                isPending: track.isPending,
                 failure: failure
             )
         }

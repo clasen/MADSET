@@ -3,19 +3,19 @@ import SwiftUI
 
 /// The set in order, one row per track. Rows drag to reorder; Delete removes the selection.
 struct TrackListView: View {
-    @Environment(SetStore.self) private var store
+    @Bindable var document: SetDocument
+    let setBPM: Double
 
     var body: some View {
-        @Bindable var store = store
-        List(selection: $store.selection) {
-            ForEach(Array(store.tracks.enumerated()), id: \.element.id) { index, track in
-                TrackRow(position: index + 1, track: track)
+        List(selection: $document.selection) {
+            ForEach(Array(document.tracks.enumerated()), id: \.element.id) { index, track in
+                TrackRow(position: index + 1, track: track, setBPM: setBPM)
                     .tag(track.id)
             }
-            .onMove { store.move(fromOffsets: $0, toOffset: $1) }
+            .onMove { document.move(fromOffsets: $0, toOffset: $1) }
         }
         .onDeleteCommand {
-            if let selection = store.selection { store.remove(selection) }
+            if let selection = document.selection { document.remove(selection) }
         }
     }
 }
@@ -23,6 +23,7 @@ struct TrackListView: View {
 private struct TrackRow: View {
     let position: Int
     let track: Track
+    let setBPM: Double
 
     var body: some View {
         HStack(spacing: 8) {
@@ -53,7 +54,7 @@ private struct TrackRow: View {
     @ViewBuilder private var status: some View {
         switch track.status {
         case .reading, .analyzing:
-            Image(systemName: "hourglass").foregroundStyle(.secondary).help("Analizando…")
+            Image(systemName: "hourglass").foregroundStyle(.secondary).help(String(localized: "Analyzing…"))
         case .failed(let message):
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(message)
         case .ready:
@@ -67,9 +68,12 @@ private struct TrackRow: View {
                 if track.bpmDisagreesWithTag, let tagged = track.tags.bpm {
                     Image(systemName: "exclamationmark.circle")
                         .foregroundStyle(.orange)
-                        .help("Mixed In Key dice \(String(format: "%.0f", tagged)) BPM")
+                        .help(String(localized: "Mixed In Key says \(Int(tagged.rounded())) BPM"))
                 }
-                Text(String(format: "%.1f", value)).font(.system(.caption, design: .monospaced))
+                Text(String(format: "%.1f", value))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(abs(setBPM / value - 1) > 0.06 ? .orange : .primary)
+                    .help(String(localized: "Stretched \(String(format: "%+.1f%%", (setBPM / value - 1) * 100)) to the set tempo"))
             }
         }
     }
@@ -86,7 +90,7 @@ struct KeyChip: View {
                 .foregroundStyle(.black.opacity(0.8))
                 .frame(width: 36, height: 18)
                 .background(Color(nsColor: Theme.color(for: key)), in: RoundedRectangle(cornerRadius: 4))
-                .help(detected ? "Key detectada por MADSET (no hay tag de Mixed In Key)" : "Key de Mixed In Key")
+                .help(detected ? String(localized: "Key detected by MADSET (no Mixed In Key tag)") : String(localized: "Key from Mixed In Key"))
         } else {
             Color.clear.frame(width: 36, height: 18)
         }

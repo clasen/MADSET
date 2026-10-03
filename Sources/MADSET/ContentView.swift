@@ -1,29 +1,29 @@
 import AppKit
+import MADSETCore
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @Environment(SetStore.self) private var store
+    @Bindable var document: SetDocument
+    @Environment(\.undoManager) private var undoManager
     @State private var isDropTargeted = false
     @State private var fitRequest = 0
 
     var body: some View {
+        let layout = document.layout
         HSplitView {
-            TrackListView()
+            TrackListView(document: document, setBPM: layout.bpm)
                 .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
-            TimelineView(
-                clips: TimelineClip.layout(store.tracks),
-                selection: store.selection,
-                fitRequest: fitRequest,
-                onSelect: { store.selection = $0 },
-                onMove: { store.move($0, before: $1) }
-            )
+            VStack(spacing: 0) {
+                TimelineView(document: document, clips: TimelineClip.clips(for: layout, tracks: document.tracks), fitRequest: fitRequest)
+                TransportBar(document: document, layout: layout)
+            }
             .frame(minWidth: 500)
         }
         .overlay {
-            if store.tracks.isEmpty {
-                ContentUnavailableView("Arrastrá temas o carpetas", systemImage: "square.and.arrow.down",
-                                       description: Text("MP3, AIFF, WAV, FLAC o M4A. Se analizan BPM, beatgrid, kick, fases y key."))
+            if document.tracks.isEmpty {
+                ContentUnavailableView("Drop tracks or folders here", systemImage: "square.and.arrow.down",
+                                       description: Text("MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed."))
                     .allowsHitTesting(false)
             }
         }
@@ -33,29 +33,43 @@ struct ContentView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            store.importItems(urls)
+            document.importItems(urls)
             return !urls.isEmpty
         } isTargeted: { isDropTargeted = $0 }
         .toolbar {
             ToolbarItemGroup {
-                Button("Importar", systemImage: "plus") { store.importItems(ImportPanel.choose()) }
-                    .help("Agregar temas o carpetas al final del set (⌘O)")
-                Button("Ajustar", systemImage: "arrow.left.and.right.square") { fitRequest += 1 }
-                    .help("Ver el set completo")
+                Button("Import", systemImage: "plus") { document.importItems(ImportPanel.choose()) }
+                    .help(String(localized: "Add tracks or folders to the end of the set (⌘I)"))
+                Button("Fit", systemImage: "arrow.left.and.right.square") { fitRequest += 1 }
+                    .help(String(localized: "Show the whole set"))
             }
             ToolbarItem(placement: .status) {
-                Text(summary).font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                Text(summary(layout)).font(.callout).monospacedDigit().foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("MADSET")
+        .alert("Playback is not available", isPresented: Binding(get: { document.playbackError != nil }, set: { if !$0 { document.clearPlaybackError() } })) {
+            Button("OK") {}
+        } message: {
+            Text(document.playbackError ?? "")
+        }
+        .focusedSceneValue(\.setDocument, document)
+        .onAppear {
+            document.undoManager = undoManager
+            document.start()
+        }
+        .onChange(of: undoManager) { document.undoManager = undoManager }
     }
 
-    private var summary: String {
-        guard !store.tracks.isEmpty else { return "Set vacío" }
-        var parts = ["\(store.tracks.count) temas", formatDuration(store.totalDuration)]
-        if store.pendingCount > 0 { parts.append("analizando \(store.pendingCount)…") }
+    private func summary(_ layout: SetLayout) -> String {
+        guard !document.tracks.isEmpty else { return String(localized: "Empty set") }
+        var parts = [String(localized: "\(document.tracks.count) tracks"), formatDuration(layout.duration)]
+        if document.pendingCount > 0 { parts.append(String(localized: "analyzing \(document.pendingCount)…")) }
         return parts.joined(separator: " · ")
     }
+}
+
+extension FocusedValues {
+    @Entry var setDocument: SetDocument?
 }
 
 enum ImportPanel {
@@ -66,7 +80,7 @@ enum ImportPanel {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.audio]
-        panel.prompt = "Agregar al set"
+        panel.prompt = String(localized: "Add to Set")
         return panel.runModal() == .OK ? panel.urls : []
     }
 }
