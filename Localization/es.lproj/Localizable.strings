@@ -4,37 +4,66 @@
 "Drop tracks or folders here" = "Arrastrá temas o carpetas acá";
 "MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed." = "MP3, AIFF, WAV, FLAC o M4A. Se analizan tempo, beatgrid, kick, fases y key.";
 "Import" = "Importar";
+"1 track is already in the set" = "1 tema ya está en el set";
+"%lld tracks are already in the set" = "%lld temas ya están en el set";
+"and %lld more" = "y %lld más";
+"Skip Duplicates" = "Saltear repetidos";
+"Add All" = "Agregar todos";
 "Add tracks or folders to the end of the set (⌘I)" = "Agregar temas o carpetas al final del set (⌘I)";
 "Fit" = "Ajustar";
 "Show the whole set" = "Ver el set completo";
+"Follow Playhead" = "Seguir el playhead";
+"Scroll the timeline along with the playhead while playing (⌥⌘F)" = "Mover el timeline junto con el playhead mientras reproduce (⌥⌘F)";
+"Drag to resize the track list" = "Arrastrá para cambiar el alto de la lista";
 "Empty set" = "Set vacío";
 "%lld tracks" = "%lld temas";
 "analyzing %lld…" = "analizando %lld…";
 "Add to Set" = "Agregar al set";
 "Playback is not available" = "La reproducción no está disponible";
+"The mix could not be exported" = "No se pudo exportar el mix";
+"Exporting mix…" = "Exportando el mix…";
+"Export" = "Exportar";
+"Mix" = "Mix";
+"Cancel" = "Cancelar";
 
 /* Menus */
 "Import Tracks…" = "Importar temas…";
+"Export Mix as WAV…" = "Exportar mix como WAV…";
+"Export Mix as AAC…" = "Exportar mix como AAC…";
 "Playback" = "Reproducción";
 "Play" = "Reproducir";
 "Pause" = "Pausa";
 "Back to Start" = "Volver al inicio";
 
 /* Transport and inspector */
+"%@ / %@" = "%@ / %@";
+"Hide Decks" = "Ocultar decks";
+"Show Decks" = "Mostrar decks";
+"Hide the decks (⌥⌘D)" = "Ocultar los decks (⌥⌘D)";
+"Show the decks (⌥⌘D)" = "Mostrar los decks (⌥⌘D)";
 "Play (Space)" = "Reproducir (Espacio)";
 "Pause (Space)" = "Pausa (Espacio)";
-"%@ / %@" = "%@ / %@";
-"Tempo" = "Tempo";
-"auto" = "auto";
+"/ %@" = "/ %@";
+"Set BPM" = "BPM del set";
+"Volume and lows of the deck" = "Volumen y graves del deck";
 "Auto" = "Auto";
 "Median tempo of the tracks. Change it to fix the set tempo." = "Tempo mediano de los temas. Cambialo para fijar el tempo del set.";
 "Follow the median tempo of the tracks" = "Seguir el tempo mediano de los temas";
-"Transition" = "Transición";
 "Bass swap" = "Bass swap";
+"Mix in" = "Entra en";
+"Length" = "Duración";
+"Bar of the previous track where this one comes in. The transition keeps its length." = "Compás del tema anterior donde entra este. La transición mantiene su duración.";
+"Bars both tracks play together. It grows or shrinks on both sides; neither track moves." = "Compases en que suenan los dos temas juntos. Crece o se achica hacia los dos lados; ningún tema se mueve.";
+"Fade in" = "Fade in";
+"Fade out" = "Fade out";
+"Bars this track takes to reach full volume, from the start of the transition." = "Compases que tarda este tema en llegar a volumen pleno, desde el inicio de la transición.";
+"Bars the previous track takes to fade out, ending with the transition." = "Compases que tarda el tema anterior en desvanecerse, terminando con la transición.";
+"Transition into" = "Transición hacia";
+"Opening track" = "Tema de apertura";
 "Cue in" = "Cue in";
 "Cue out" = "Cue out";
-"%lld bars" = "%lld compases";
-"bar %lld" = "compás %lld";
+"bars" = "compases";
+"bar" = "compás";
 "Back to the automatic, phrase-aligned transition" = "Volver a la transición automática, alineada a las frases";
 "Select a track to edit its transition" = "Seleccioná un tema para editar su transición";
 
@@ -43,18 +72,39 @@
 "Remove Track" = "Quitar tema";
 "Change Tempo" = "Cambiar tempo";
 "Change Transition" = "Cambiar transición";
+"Move Transition" = "Mover transición";
+"Move Track" = "Mover tema";
 "Move Bass Swap" = "Mover bass swap";
+"Change Fade In" = "Cambiar fade in";
+"Change Fade Out" = "Cambiar fade out";
 "Change Cue In" = "Cambiar cue in";
 "Change Cue Out" = "Cambiar cue out";
 "Reset Transition" = "Restablecer transición";
+"Split Track" = "Dividir tema";
+
+/* Decks */
+"No track on this deck" = "No hay tema en este deck";
+"On air" = "Al aire";
+"Next" = "Siguiente";
+"in %@" = "en %@";
+"Bar %lld / %lld" = "Compás %lld / %lld";
 
 /* Track list and timeline */
+"Set" = "Set";
+"Title" = "Título";
+"Artist" = "Artista";
+"Genre" = "Género";
+"Time" = "Duración";
+"Energy (Mixed In Key)" = "Energía (Mixed In Key)";
+"Energy %lld (Mixed In Key)" = "Energía %lld (Mixed In Key)";
 "Analyzing…" = "Analizando…";
 "Error: %@" = "Error: %@";
-"Mixed In Key says %lld BPM" = "Mixed In Key dice %lld BPM";
 "Stretched %@ to the set tempo" = "Estirado %@ al tempo del set";
 "Key detected by MADSET (no Mixed In Key tag)" = "Key detectada por MADSET (sin tag de Mixed In Key)";
 "Key from Mixed In Key" = "Key de Mixed In Key";
+"bars %lld–%lld" = "compases %lld–%lld";
+"Part of a split track" = "Parte de un tema dividido";
+"Split at Bar %lld" = "Dividir en el compás %lld";
 
 /* Errors */
 "No rhythm found (a track without kick, or silence?)" = "No se encontró ritmo (¿tema sin kick o silencio?)";

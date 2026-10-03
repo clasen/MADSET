@@ -1,7 +1,7 @@
 import Foundation
 
 /// Minimal ID3v2.3/2.4 reader for the text frames a DJ library needs.
-/// Returns canonical field names: TITLE, ARTIST, INITIALKEY, BPM, COMMENT and TXXX descriptions uppercased.
+/// Returns canonical field names: TITLE, ARTIST, GENRE, INITIALKEY, BPM, COMMENT and TXXX descriptions uppercased.
 enum ID3Parser {
     static let headerSize = 10
 
@@ -51,7 +51,7 @@ enum ID3Parser {
     }
 
     private static let textFrames: [String: String] = [
-        "TIT2": "TITLE", "TPE1": "ARTIST", "TKEY": "INITIALKEY", "TBPM": "BPM",
+        "TIT2": "TITLE", "TPE1": "ARTIST", "TCON": "GENRE", "TKEY": "INITIALKEY", "TBPM": "BPM",
     ]
 
     private static func isWanted(_ id: String) -> Bool {

@@ -13,6 +13,7 @@ public enum MIKTags {
         return TrackTags(
             title: nonEmpty(fields["TITLE"]),
             artist: nonEmpty(fields["ARTIST"]),
+            genre: nonEmpty(fields["GENRE"]),
             key: fields["INITIALKEY"].flatMap(CamelotKey.init(parsing:)) ?? comment?.key,
             energy: fields["ENERGYLEVEL"].flatMap(parseEnergy) ?? comment?.energy,
             bpm: fields["BPM"].flatMap { Double($0.replacingOccurrences(of: ",", with: ".")) }.flatMap { $0 > 0 ? $0 : nil }

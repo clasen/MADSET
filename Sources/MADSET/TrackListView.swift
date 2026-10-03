@@ -2,57 +2,159 @@ import MADSETCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The set in order, one row per track. Rows drag to reorder; Delete removes the selection.
+/// The set in order, one row per track, under a library-style header. Rows drag to reorder;
+/// Delete removes the selection.
 struct TrackListView: View {
     @Bindable var document: SetDocument
-    let setBPM: Double
+    let layout: SetLayout
 
     var body: some View {
-        List(selection: $document.selection) {
-            ForEach(Array(document.tracks.enumerated()), id: \.element.id) { index, track in
-                TrackRow(position: index + 1, track: track, setBPM: setBPM)
-                    .tag(track.id)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Set").font(.system(size: 13, weight: .semibold))
+                Text(summary).font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
+                Spacer()
             }
-            .onMove { document.move(fromOffsets: $0, toOffset: $1) }
-            .onInsert(of: [.fileURL]) { index, providers in
-                FileDrop.loadURLs(from: providers) { document.importItems($0, at: index) }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(Theme.panel)
+            Divider()
+            List(selection: $document.selection) {
+                Section {
+                    let split = splitFiles
+                    ForEach(Array(document.tracks.enumerated()), id: \.element.id) { index, track in
+                        let placed = layout.entries[index]
+                        TrackRow(position: index + 1, track: track, part: split.contains(track.url) ? placed.cueInBar..<placed.cueOutBar : nil,
+                                 setBPM: layout.bpm, isPlaying: document.nowPlaying.contains(track.id))
+                            .tag(track.id)
+                    }
+                    .onMove { document.move(fromOffsets: $0, toOffset: $1) }
+                    .onInsert(of: [.fileURL]) { index, providers in
+                        FileDrop.loadURLs(from: providers) { document.importItems($0, at: index) }
+                    }
+                } header: {
+                    ColumnHeader()
+                }
+            }
+            .listStyle(.plain)
+            .alternatingRowBackgrounds()
+            .scrollContentBackground(.hidden)
+            .background(Theme.window)
+            .onDeleteCommand {
+                if let selection = document.selection { document.remove(selection) }
             }
         }
-        .onDeleteCommand {
-            if let selection = document.selection { document.remove(selection) }
+    }
+
+    /// Files that play in more than one part of the set.
+    private var splitFiles: Set<URL> {
+        var seen = Set<URL>()
+        return Set(document.tracks.map(\.url).filter { !seen.insert($0).inserted })
+    }
+
+    private var summary: String {
+        guard !document.tracks.isEmpty else { return String(localized: "Empty set") }
+        var parts = [String(localized: "\(document.tracks.count) tracks"), formatDuration(layout.duration)]
+        if document.pendingCount > 0 { parts.append(String(localized: "analyzing \(document.pendingCount)…")) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Widths shared by the column header and the rows.
+private enum TrackColumns {
+    static let position: CGFloat = 26
+    static let playing: CGFloat = 16
+    static let key: CGFloat = 38
+    static let energy: CGFloat = 26
+    static let bpm: CGFloat = 64
+    static let time: CGFloat = 44
+    static let status: CGFloat = 16
+    static let spacing: CGFloat = 8
+    static let genre: CGFloat = 150
+    /// Extra space between a cell's text and the list's side edges.
+    static let cellInset: CGFloat = 12
+    /// A list section header ends this much before its rows do (room AppKit keeps for its Show/Hide button).
+    static let headerTrailingInset: CGFloat = 24
+}
+
+private struct ColumnHeader: View {
+    var body: some View {
+        HStack(spacing: TrackColumns.spacing) {
+            Text("#").frame(width: TrackColumns.position, alignment: .trailing)
+            Color.clear.frame(width: TrackColumns.playing)
+            Text("Key").frame(width: TrackColumns.key)
+            Text("E").frame(width: TrackColumns.energy).help(String(localized: "Energy (Mixed In Key)"))
+            Text("Title").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Artist").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Genre").frame(width: TrackColumns.genre, alignment: .leading)
+            Text("BPM").frame(width: TrackColumns.bpm, alignment: .trailing)
+            Text("Time").frame(width: TrackColumns.time, alignment: .trailing)
+            Color.clear.frame(width: TrackColumns.status)
         }
+        .padding(.horizontal, TrackColumns.cellInset)
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.trailing, -TrackColumns.headerTrailingInset)
+        .frame(height: 22)
     }
 }
 
 private struct TrackRow: View {
     let position: Int
     let track: Track
+    /// The track's bars this row plays, when the track is split.
+    let part: Range<Int>?
     let setBPM: Double
+    let isPlaying: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: TrackColumns.spacing) {
             Text("\(position)")
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 12).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 26, alignment: .trailing)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(track.title).fontWeight(.medium).lineLimit(1)
-                Text(track.artist ?? " ").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            status
+                .frame(width: TrackColumns.position, alignment: .trailing)
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.accent)
+                .frame(width: TrackColumns.playing)
+                .opacity(isPlaying ? 1 : 0)
             KeyChip(key: track.key, detected: track.keyIsDetected)
-            bpm.frame(width: 52, alignment: .trailing)
-            Text(track.tags.energy.map { "E\($0)" } ?? "")
-                .font(.system(.caption, design: .monospaced))
+                .frame(width: TrackColumns.key)
+            EnergyChip(energy: track.tags.energy)
+                .frame(width: TrackColumns.energy)
+            HStack(spacing: 6) {
+                Text(track.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isPlaying ? Theme.accent : .primary)
+                    .lineLimit(1)
+                if let part {
+                    Text("bars \(part.lowerBound)–\(part.upperBound)")
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                        .help(String(localized: "Part of a split track"))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(track.artist ?? "")
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .frame(width: 24, alignment: .trailing)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(track.genre ?? "")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: TrackColumns.genre, alignment: .leading)
+            bpm.frame(width: TrackColumns.bpm, alignment: .trailing)
             Text(track.duration.map(formatDuration) ?? "")
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 12).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 38, alignment: .trailing)
+                .frame(width: TrackColumns.time, alignment: .trailing)
+            status.frame(width: TrackColumns.status)
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, TrackColumns.cellInset)
+        .frame(height: 26)
     }
 
     @ViewBuilder private var status: some View {
@@ -68,17 +170,10 @@ private struct TrackRow: View {
 
     @ViewBuilder private var bpm: some View {
         if let value = track.bpm {
-            HStack(spacing: 2) {
-                if track.bpmDisagreesWithTag, let tagged = track.tags.bpm {
-                    Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
-                        .help(String(localized: "Mixed In Key says \(Int(tagged.rounded())) BPM"))
-                }
-                Text(String(format: "%.1f", value))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(abs(setBPM / value - 1) > 0.06 ? .orange : .primary)
-                    .help(String(localized: "Stretched \(String(format: "%+.1f%%", (setBPM / value - 1) * 100)) to the set tempo"))
-            }
+            Text(String(format: "%.1f", value))
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(abs(setBPM / value - 1) > 0.06 ? .orange : .primary)
+                .help(String(localized: "Stretched \(String(format: "%+.1f%%", (setBPM / value - 1) * 100)) to the set tempo"))
         }
     }
 }
@@ -97,6 +192,23 @@ struct KeyChip: View {
                 .help(detected ? String(localized: "Key detected by MADSET (no Mixed In Key tag)") : String(localized: "Key from Mixed In Key"))
         } else {
             Color.clear.frame(width: 36, height: 18)
+        }
+    }
+}
+
+struct EnergyChip: View {
+    let energy: Int?
+
+    var body: some View {
+        if let energy {
+            Text("\(energy)")
+                .font(.system(.caption, design: .rounded).weight(.bold).monospacedDigit())
+                .foregroundStyle(.black.opacity(0.8))
+                .frame(width: 24, height: 18)
+                .background(Color(nsColor: Theme.color(forEnergy: energy)), in: RoundedRectangle(cornerRadius: 4))
+                .help(String(localized: "Energy \(energy) (Mixed In Key)"))
+        } else {
+            Color.clear.frame(width: 24, height: 18)
         }
     }
 }

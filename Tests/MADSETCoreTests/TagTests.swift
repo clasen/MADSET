@@ -20,8 +20,8 @@ import Testing
 
 @Suite struct MIKTagsTests {
     @Test func prefersDedicatedFields() {
-        let tags = MIKTags.interpret(["INITIALKEY": "9B", "ENERGYLEVEL": "6", "COMMENT": "4A - 3", "BPM": "124", "TITLE": "T", "ARTIST": "A"])
-        #expect(tags == TrackTags(title: "T", artist: "A", key: CamelotKey(number: 9, mode: .major), energy: 6, bpm: 124))
+        let tags = MIKTags.interpret(["INITIALKEY": "9B", "ENERGYLEVEL": "6", "COMMENT": "4A - 3", "BPM": "124", "TITLE": "T", "ARTIST": "A", "GENRE": "Afro House"])
+        #expect(tags == TrackTags(title: "T", artist: "A", genre: "Afro House", key: CamelotKey(number: 9, mode: .major), energy: 6, bpm: 124))
     }
 
     @Test(arguments: [
@@ -56,21 +56,25 @@ import Testing
         let tag = id3(major: 4, frames: [
             frame("TIT2", [3] + Array(longTitle.utf8), major: 4),
             frame("TBPM", [3] + Array("128".utf8), major: 4),
+            frame("TCON", [3] + Array("Melodic House & Techno".utf8), major: 4),
         ])
         let fields = try TagReader.readFields(url: try write(tag, ext: "mp3"))
         #expect(fields["TITLE"] == longTitle)
         #expect(fields["BPM"] == "128")
+        #expect(fields["GENRE"] == "Melodic House & Techno")
     }
 
     @Test func readsFLACVorbisComments() throws {
-        var comments: [UInt8] = le32(6) + Array("vendor".utf8) + le32(2)
-        for entry in ["INITIALKEY=5A", "EnergyLevel=4"] { comments += le32(entry.utf8.count) + Array(entry.utf8) }
+        let entries = ["INITIALKEY=5A", "EnergyLevel=4", "Genre=Organic House"]
+        var comments: [UInt8] = le32(6) + Array("vendor".utf8) + le32(entries.count)
+        for entry in entries { comments += le32(entry.utf8.count) + Array(entry.utf8) }
         let streamInfo: [UInt8] = [0x00, 0, 0, 34] + [UInt8](repeating: 0, count: 34)
         let vorbis: [UInt8] = [0x84] + be24(comments.count) + comments
         let url = try write(Array("fLaC".utf8) + streamInfo + vorbis, ext: "flac")
         let tags = try MIKTags.read(url: url)
         #expect(tags.key?.description == "5A")
         #expect(tags.energy == 4)
+        #expect(tags.genre == "Organic House")
     }
 
     @Test func readsID3ChunkAtTheEndOfAIFF() throws {

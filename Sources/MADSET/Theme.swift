@@ -20,6 +20,20 @@ enum Theme {
     static let playhead = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.2, alpha: 1)
     static let swap = NSColor(srgbRed: 0.98, green: 0.62, blue: 0.16, alpha: 1)
 
+    /// Surfaces of the SwiftUI panels around the timeline, from the window down to raised controls.
+    static let window = Color(nsColor: NSColor(srgbRed: 0.055, green: 0.06, blue: 0.07, alpha: 1))
+    static let panel = Color(nsColor: NSColor(srgbRed: 0.09, green: 0.097, blue: 0.113, alpha: 1))
+    static let control = Color(nsColor: NSColor(srgbRed: 0.15, green: 0.16, blue: 0.185, alpha: 1))
+    static let controlHover = Color(nsColor: NSColor(srgbRed: 0.19, green: 0.2, blue: 0.23, alpha: 1))
+    static let hairline = Color.white.opacity(0.08)
+    static let accent = Color(nsColor: NSColor(srgbRed: 1.0, green: 0.6, blue: 0.12, alpha: 1))
+    static let play = Color(nsColor: NSColor(srgbRed: 0.3, green: 0.85, blue: 0.4, alpha: 1))
+    /// Deck A plays the first timeline lane, deck B the second.
+    static let decks = [
+        Color(nsColor: NSColor(srgbRed: 0.2, green: 0.56, blue: 1.0, alpha: 1)),
+        Color(nsColor: NSColor(srgbRed: 1.0, green: 0.33, blue: 0.45, alpha: 1)),
+    ]
+
     static func color(for phase: Phase) -> NSColor {
         switch phase {
         case .intro: NSColor(srgbRed: 0.36, green: 0.49, blue: 0.69, alpha: 1)
@@ -35,6 +49,13 @@ enum Theme {
     static func color(for key: CamelotKey) -> NSColor {
         let hue = (Double(key.number - 1) / 12 + 0.42).truncatingRemainder(dividingBy: 1)
         return NSColor(hue: hue, saturation: 0.62, brightness: key.mode == .minor ? 0.78 : 0.95, alpha: 1)
+    }
+
+    /// Mixed In Key energy 1–10 from pale cyan through blue and violet to saturated magenta,
+    /// so the crowded middle (5–8) still lands on clearly different hues.
+    static func color(forEnergy energy: Int) -> NSColor {
+        let t = Double(min(max(energy, 1), 10) - 1) / 9
+        return NSColor(hue: 0.5 + 0.39 * t, saturation: 0.35 + 0.4 * t, brightness: 0.96, alpha: 1)
     }
 }
 

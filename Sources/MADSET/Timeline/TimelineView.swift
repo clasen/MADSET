@@ -6,6 +6,7 @@ struct TimelineView: NSViewRepresentable {
     let clips: [TimelineClip]
     /// Incremented to ask for a zoom that fits the whole set.
     let fitRequest: Int
+    @Binding var followsPlayhead: Bool
 
     func makeNSView(context: Context) -> TimelineCanvas {
         TimelineCanvas()
@@ -15,14 +16,13 @@ struct TimelineView: NSViewRepresentable {
         let document = document
         canvas.onSelect = { document.selection = $0 }
         canvas.onMove = { document.move($0, before: $1) }
-        canvas.onSetOverlap = { id, bars in
-            document.edit(id, String(localized: "Change Transition")) { $0.overlapBars = bars }
-        }
-        canvas.onSetBassSwap = { id, bar in
-            document.edit(id, String(localized: "Move Bass Swap")) { $0.bassSwapBar = bar }
-        }
+        canvas.onEdit = { document.apply($0) }
+        canvas.onSplit = { document.split($0, atBar: $1) }
+        canvas.arrange = { TimelineClip.clips(for: document.layout(applying: $0), tracks: document.tracks) }
         canvas.onSeek = { document.seek(to: $0) }
         canvas.playhead = { (document.currentTime, document.isPlaying) }
+        canvas.followsPlayhead = followsPlayhead
+        canvas.onFollowsPlayheadChange = { followsPlayhead = $0 }
         canvas.clips = clips
         canvas.selectedID = document.selection
         if canvas.fitRequest != fitRequest {

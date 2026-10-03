@@ -27,6 +27,13 @@ private struct SetCommands: Commands {
                 .keyboardShortcut("i")
                 .disabled(document == nil)
         }
+        CommandGroup(replacing: .importExport) {
+            Button("Export Mix as WAV…") { document?.exportMix(as: .wav) }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(document?.canExport != true)
+            Button("Export Mix as AAC…") { document?.exportMix(as: .aac) }
+                .disabled(document?.canExport != true)
+        }
         CommandMenu("Playback") {
             Button(document?.isPlaying == true ? LocalizedStringKey("Pause") : LocalizedStringKey("Play")) { document?.togglePlayback() }
                 .keyboardShortcut(.space, modifiers: [])

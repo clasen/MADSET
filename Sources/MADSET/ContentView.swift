@@ -8,25 +8,47 @@ struct ContentView: View {
     @Environment(\.undoManager) private var undoManager
     @State private var isDropTargeted = false
     @State private var fitRequest = 0
+    @AppStorage("showsDecks") private var showsDecks = true
+    @AppStorage("followsPlayhead") private var followsPlayhead = true
+    @AppStorage("trackListHeight") private var trackListHeight = 260.0
+    @State private var timelineHeight: CGFloat = 0
+    @State private var listHeight: CGFloat = 0
+
+    private static let minTimelineHeight: CGFloat = 200
+    private static let minTrackListHeight: CGFloat = 150
 
     var body: some View {
         let layout = document.layout
-        HSplitView {
-            TrackListView(document: document, setBPM: layout.bpm)
-                .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
-            VStack(spacing: 0) {
-                TimelineView(document: document, clips: TimelineClip.clips(for: layout, tracks: document.tracks), fitRequest: fitRequest)
-                    .overlay {
-                        if document.tracks.isEmpty {
-                            ContentUnavailableView("Drop tracks or folders here", systemImage: "square.and.arrow.down",
-                                                   description: Text("MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed."))
-                                .allowsHitTesting(false)
-                        }
+        let clips = TimelineClip.clips(for: layout, tracks: document.tracks)
+        VStack(spacing: 0) {
+            TimelineView(document: document, clips: clips, fitRequest: fitRequest, followsPlayhead: $followsPlayhead)
+                .overlay {
+                    if document.tracks.isEmpty {
+                        ContentUnavailableView("Drop tracks or folders here", systemImage: "square.and.arrow.down",
+                                               description: Text("MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed."))
+                            .allowsHitTesting(false)
                     }
-                TransportBar(document: document, layout: layout)
+                }
+                .frame(minHeight: Self.minTimelineHeight, maxHeight: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { timelineHeight = $0 }
+            if showsDecks {
+                Divider()
+                DeckPanel(document: document, clips: clips, layout: layout)
             }
-            .frame(minWidth: 500)
+            Divider()
+            TransitionInspector(document: document, layout: layout)
+            PaneSplitter { start, offset in
+                trackListHeight = min(max(start.list - offset, Self.minTrackListHeight), start.list + start.timeline - Self.minTimelineHeight)
+            } heights: { (list: listHeight, timeline: timelineHeight) }
+            // The list takes its height first and gives it back only once the timeline is at its minimum.
+            TrackListView(document: document, layout: layout)
+                .frame(minHeight: Self.minTrackListHeight, maxHeight: max(trackListHeight, Self.minTrackListHeight))
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                .layoutPriority(1)
         }
+        .background(Theme.window)
+        .background(PlaybackTicker(document: document))
+        .background(SpaceKeyMonitor { document.togglePlayback() })
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 3).padding(4).allowsHitTesting(false)
@@ -37,20 +59,42 @@ struct ContentView: View {
             return !urls.isEmpty
         } isTargeted: { isDropTargeted = $0 }
         .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                if !showsDecks { CompactTransport(document: document, duration: layout.duration) }
+            }
             ToolbarItemGroup {
+                Button(showsDecks ? "Hide Decks" : "Show Decks", systemImage: "rectangle.split.2x1") { showsDecks.toggle() }
+                    .keyboardShortcut("d", modifiers: [.command, .option])
+                    .help(showsDecks ? String(localized: "Hide the decks (⌥⌘D)") : String(localized: "Show the decks (⌥⌘D)"))
                 Button("Import", systemImage: "plus") { document.importItems(ImportPanel.choose()) }
                     .help(String(localized: "Add tracks or folders to the end of the set (⌘I)"))
                 Button("Fit", systemImage: "arrow.left.and.right.square") { fitRequest += 1 }
                     .help(String(localized: "Show the whole set"))
-            }
-            ToolbarItem(placement: .status) {
-                Text(summary(layout)).font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                Toggle("Follow Playhead", systemImage: "arrow.right.to.line", isOn: $followsPlayhead)
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+                    .help(String(localized: "Scroll the timeline along with the playhead while playing (⌥⌘F)"))
             }
         }
         .alert("Playback is not available", isPresented: Binding(get: { document.playbackError != nil }, set: { if !$0 { document.clearPlaybackError() } })) {
             Button("OK") {}
         } message: {
             Text(document.playbackError ?? "")
+        }
+        .alert("The mix could not be exported", isPresented: Binding(get: { document.exportError != nil }, set: { if !$0 { document.clearExportError() } })) {
+            Button("OK") {}
+        } message: {
+            Text(document.exportError ?? "")
+        }
+        .alert(duplicatesTitle, isPresented: Binding(get: { document.pendingImport != nil }, set: { if !$0 { document.cancelImport() } })) {
+            Button("Skip Duplicates") { document.resolveImport(skippingDuplicates: true) }
+                .keyboardShortcut(.defaultAction)
+            Button("Add All") { document.resolveImport(skippingDuplicates: false) }
+            Button("Cancel", role: .cancel) { document.cancelImport() }
+        } message: {
+            Text(duplicatesMessage)
+        }
+        .sheet(isPresented: Binding(get: { document.exportProgress != nil }, set: { _ in })) {
+            ExportProgressSheet(progress: document.exportProgress ?? 0) { document.cancelExport() }
         }
         .focusedSceneValue(\.setDocument, document)
         .onAppear {
@@ -59,13 +103,22 @@ struct ContentView: View {
         }
         .onChange(of: undoManager) { document.undoManager = undoManager }
     }
+}
 
-    private func summary(_ layout: SetLayout) -> String {
-        guard !document.tracks.isEmpty else { return String(localized: "Empty set") }
-        var parts = [String(localized: "\(document.tracks.count) tracks"), formatDuration(layout.duration)]
-        if document.pendingCount > 0 { parts.append(String(localized: "analyzing \(document.pendingCount)…")) }
-        return parts.joined(separator: " · ")
+extension ContentView {
+    private var duplicatesTitle: String {
+        let count = document.pendingImport?.duplicates.count ?? 0
+        return count == 1 ? String(localized: "1 track is already in the set") : String(localized: "\(count) tracks are already in the set")
     }
+
+    private var duplicatesMessage: String {
+        guard let pending = document.pendingImport else { return "" }
+        let titles = pending.tracks.filter { pending.duplicates.contains($0.id) }.map(\.title)
+        let shown = titles.prefix(Self.listedDuplicates).joined(separator: "\n")
+        return titles.count > Self.listedDuplicates ? shown + "\n" + String(localized: "and \(titles.count - Self.listedDuplicates) more") : shown
+    }
+
+    private static let listedDuplicates = 5
 }
 
 extension FocusedValues {
@@ -82,5 +135,136 @@ enum ImportPanel {
         panel.allowedContentTypes = [.audio]
         panel.prompt = String(localized: "Add to Set")
         return panel.runModal() == .OK ? panel.urls : []
+    }
+}
+
+enum ExportPanel {
+    /// Where to write a mix in `format`, named after the set.
+    @MainActor
+    static func choose(_ format: SetExporter.Format) -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format.contentType]
+        panel.nameFieldStringValue = NSApp.keyWindow?.title ?? String(localized: "Mix")
+        panel.prompt = String(localized: "Export")
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+}
+
+private struct ExportProgressSheet: View {
+    let progress: Double
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Exporting mix…").font(.headline)
+            ProgressView(value: progress)
+            HStack {
+                Text(progress, format: .percent.precision(.fractionLength(0))).monospacedDigit().foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+        .interactiveDismissDisabled()
+    }
+}
+
+/// Polls the playhead so the document follows it, with or without the decks.
+private struct PlaybackTicker: View {
+    let document: SetDocument
+
+    var body: some View {
+        SwiftUI.TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+            Color.clear.task(id: document.currentTime) { document.playbackTick() }
+        }
+    }
+}
+
+/// Play and the clock in the toolbar while the decks, which carry them, are hidden.
+private struct CompactTransport: View {
+    let document: SetDocument
+    let duration: TimeInterval
+
+    var body: some View {
+        Button(document.isPlaying ? "Pause" : "Play", systemImage: document.isPlaying ? "pause.fill" : "play.fill") { document.togglePlayback() }
+            .help(document.isPlaying ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
+        SwiftUI.TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            Text("\(formatDuration(document.currentTime)) / \(formatDuration(duration))")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.leading, 2)
+                .padding(.trailing, 12)
+        }
+    }
+}
+
+/// Horizontal bar between the panels above and the track list; dragging it trades height between
+/// the timeline and the list.
+private struct PaneSplitter: View {
+    typealias Heights = (list: CGFloat, timeline: CGFloat)
+
+    /// Called while dragging with the heights at the start of the drag and how far the bar moved down.
+    let resize: (Heights, CGFloat) -> Void
+    let heights: () -> Heights
+    @State private var start: Heights?
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+            Capsule().fill(Color.white.opacity(0.18)).frame(width: 36, height: 3)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 7)
+        .background(Theme.window)
+        .contentShape(Rectangle())
+        .pointerStyle(.rowResize)
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { drag in
+                    let start = start ?? heights()
+                    self.start = start
+                    resize(start, drag.translation.height)
+                }
+                .onEnded { _ in start = nil }
+        )
+        .help(String(localized: "Drag to resize the track list"))
+    }
+}
+
+/// Space toggles playback anywhere in the window except while text is being edited. A local monitor
+/// sees the key before the focused list or button, which would otherwise take it.
+private struct SpaceKeyMonitor: NSViewRepresentable {
+    let action: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> MonitorView { MonitorView() }
+
+    func updateNSView(_ view: MonitorView, context: Context) { view.action = action }
+
+    final class MonitorView: NSView {
+        var action: @MainActor () -> Void = {}
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let handled = MainActor.assumeIsolated { self?.handle(event) ?? false }
+                return handled ? nil : event
+            }
+        }
+
+        /// Whether the event was the space key for this window, and so consumed.
+        private func handle(_ event: NSEvent) -> Bool {
+            guard let window, event.window === window, event.keyCode == Self.spaceKeyCode,
+                  event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]),
+                  !(window.firstResponder is NSText) else { return false }
+            if !event.isARepeat { action() }
+            return true
+        }
+
+        private static let spaceKeyCode: UInt16 = 49
     }
 }

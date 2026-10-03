@@ -31,6 +31,13 @@ public struct AppConfig: Sendable {
         public var emptySetBPM: Double
     }
 
+    public struct Export: Sendable {
+        /// Sample depth of exported WAV files.
+        public var wavBitDepth: Int
+        /// Bits per second of exported AAC files.
+        public var aacBitRate: Int
+    }
+
     public struct Cache: Sendable {
         /// Folder inside ~/Library/Caches holding analysis results.
         public var folderName: String
@@ -38,6 +45,7 @@ public struct AppConfig: Sendable {
 
     public var analysis: Analysis
     public var playback: Playback
+    public var export: Export
     public var cache: Cache
 
     public static let current = AppConfig(
@@ -57,6 +65,7 @@ public struct AppConfig: Sendable {
             cachedSources: 6,
             emptySetBPM: 124
         ),
+        export: Export(wavBitDepth: 24, aacBitRate: 256_000),
         cache: Cache(folderName: "MADSET/analysis")
     )
 }

@@ -4,13 +4,15 @@ import Foundation
 public struct TrackTags: Codable, Sendable, Equatable {
     public var title: String?
     public var artist: String?
+    public var genre: String?
     public var key: CamelotKey?
     public var energy: Int?
     public var bpm: Double?
 
-    public init(title: String? = nil, artist: String? = nil, key: CamelotKey? = nil, energy: Int? = nil, bpm: Double? = nil) {
+    public init(title: String? = nil, artist: String? = nil, genre: String? = nil, key: CamelotKey? = nil, energy: Int? = nil, bpm: Double? = nil) {
         self.title = title
         self.artist = artist
+        self.genre = genre
         self.key = key
         self.energy = energy
         self.bpm = bpm

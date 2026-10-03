@@ -3,6 +3,7 @@ import Foundation
 import MADSETCore
 import Observation
 import SwiftUI
+import Synchronization
 import UniformTypeIdentifiers
 
 extension UTType {
@@ -16,15 +17,27 @@ extension UTType {
 final class SetDocument: ReferenceFileDocument {
     nonisolated static let readableContentTypes: [UTType] = [.madsetSet]
 
-    private(set) var tracks: [Track] = []
+    private(set) var tracks: [Track] = [] {
+        didSet { storeSaved() }
+    }
     /// Tempo of the set; nil follows the tracks (median tempo).
-    private(set) var tempo: Double?
+    private(set) var tempo: Double? {
+        didSet { storeSaved() }
+    }
     var selection: Track.ID?
     private(set) var isPlaying = false
+    /// Tracks under the playhead, playing or paused.
+    private(set) var nowPlaying: Set<Track.ID> = []
     private(set) var playbackError: String?
+    /// Fraction done of the running export; nil when none is running.
+    private(set) var exportProgress: Double?
+    private(set) var exportError: String?
+    /// An import that repeats songs already in the set, waiting for the user to skip or keep them.
+    private(set) var pendingImport: PendingImport?
 
     @ObservationIgnored private var queue: Task<Void, Never>?
     @ObservationIgnored private var player: SetPlayer?
+    @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
     /// The window's undo manager; edits register here, which also marks the document as edited.
     @ObservationIgnored weak var undoManager: UndoManager?
@@ -42,20 +55,28 @@ final class SetDocument: ReferenceFileDocument {
 
     /// The file this document was opened from; its arrangement is applied by `start()` on the main actor.
     private nonisolated let opened: SetFile?
+    /// What saving writes, kept current on the main actor: AppKit autosaves from a background thread.
+    private nonisolated let saved: Mutex<SetFile>
 
     nonisolated init() {
         opened = nil
+        saved = Mutex(SetFile(bpm: nil, entries: []))
     }
 
     nonisolated init(configuration: ReadConfiguration) throws {
         guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
-        opened = try SetFile.decode(data)
+        let file = try SetFile.decode(data)
+        opened = file
+        saved = Mutex(file)
     }
 
     nonisolated func snapshot(contentType: UTType) throws -> SetFile {
-        MainActor.assumeIsolated {
-            started ? SetFile(bpm: tempo, entries: tracks.map(\.entry)) : opened ?? SetFile(bpm: nil, entries: [])
-        }
+        saved.withLock { $0 }
+    }
+
+    private func storeSaved() {
+        let file = SetFile(bpm: tempo, entries: tracks.map(\.entry))
+        saved.withLock { $0 = file }
     }
 
     nonisolated func fileWrapper(snapshot: SetFile, configuration: WriteConfiguration) throws -> FileWrapper {
@@ -78,12 +99,19 @@ final class SetDocument: ReferenceFileDocument {
         tempo ?? SetLayout.suggestedBPM(tracks.compactMap(\.bpm)) ?? Self.config.playback.emptySetBPM
     }
 
-    var layout: SetLayout {
+    var layout: SetLayout { Self.layout(of: tracks, bpm: effectiveTempo) }
+
+    /// The layout `edit` would produce, to preview it while it is being made.
+    func layout(applying edit: ArrangementEdit) -> SetLayout {
+        Self.layout(of: Self.applying(edit, to: tracks), bpm: effectiveTempo)
+    }
+
+    private static func layout(of tracks: [Track], bpm: Double) -> SetLayout {
         SetLayout(
-            bpm: effectiveTempo,
+            bpm: bpm,
             entries: tracks.map(\.entry),
             tracks: Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0.layoutInfo) }),
-            phraseBars: Self.config.analysis.phraseBars
+            phraseBars: config.analysis.phraseBars
         )
     }
 
@@ -92,20 +120,36 @@ final class SetDocument: ReferenceFileDocument {
     // MARK: - Editing
 
     /// Adds the audio files among `urls` (folders are expanded) at `index`, or at the end of the set,
-    /// and analyzes them. Files already in the set are skipped.
+    /// and analyzes them. When some repeat a song already in the set, `pendingImport` asks what to do.
     func importItems(_ urls: [URL], at index: Int? = nil) {
         Task {
             let files = await Self.audioFiles(in: urls)
-            var known = Set(tracks.map(\.url.standardizedFileURL))
-            let added = files.compactMap { url -> Track? in
-                known.insert(url.standardizedFileURL).inserted ? Track(entry: SetEntry(file: url)) : nil
+            guard !files.isEmpty else { return }
+            let read = await Self.readingTags(files.map { Track(entry: SetEntry(file: $0)) })
+            let duplicates = DuplicateSongs.indices(of: read.map(\.song), among: tracks.map(\.song))
+            if duplicates.isEmpty {
+                insert(read, at: index)
+            } else {
+                pendingImport = PendingImport(tracks: read, duplicates: Set(duplicates.map { read[$0].id }), index: index)
             }
-            guard !added.isEmpty else { return }
-            perform(String(localized: "Import")) { document in
-                document.tracks.insert(contentsOf: added, at: min(index ?? document.tracks.count, document.tracks.count))
-            }
-            process(added.map(\.id))
         }
+    }
+
+    /// Finishes the import waiting on the user, with or without the songs already in the set.
+    func resolveImport(skippingDuplicates: Bool) {
+        guard let pending = pendingImport else { return }
+        pendingImport = nil
+        insert(skippingDuplicates ? pending.tracks.filter { !pending.duplicates.contains($0.id) } : pending.tracks, at: pending.index)
+    }
+
+    func cancelImport() { pendingImport = nil }
+
+    private func insert(_ added: [Track], at index: Int?) {
+        guard !added.isEmpty else { return }
+        perform(String(localized: "Import")) { document in
+            document.tracks.insert(contentsOf: added, at: min(index ?? document.tracks.count, document.tracks.count))
+        }
+        process(added.map(\.id))
     }
 
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
@@ -123,6 +167,19 @@ final class SetDocument: ReferenceFileDocument {
         }
     }
 
+    /// Splits an analyzed track at one of its own bars into two that play one after the other and
+    /// from then on arrange like two tracks. The second part is selected.
+    func split(_ id: Track.ID, atBar bar: Int) {
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else { return }
+        precondition(tracks[index].status == .ready, "Only analyzed tracks can be split")
+        var second = tracks[index]
+        perform(String(localized: "Split Track")) { document in
+            second.entry = document.tracks[index].entry.split(atBar: bar)
+            document.tracks.insert(second, at: index + 1)
+        }
+        selection = second.id
+    }
+
     func remove(_ id: Track.ID) {
         perform(String(localized: "Remove Track")) { $0.tracks.removeAll { $0.id == id } }
         if selection == id { selection = nil }
@@ -134,10 +191,20 @@ final class SetDocument: ReferenceFileDocument {
 
     /// Changes one transition or cue setting of a track; nil returns it to automatic.
     func edit(_ id: Track.ID, _ name: String, _ change: @escaping (inout SetEntry) -> Void) {
-        perform(name) { document in
-            guard let index = document.tracks.firstIndex(where: { $0.id == id }) else { return }
-            change(&document.tracks[index].entry)
+        apply(ArrangementEdit(name: name, changes: [(id, change)]))
+    }
+
+    func apply(_ edit: ArrangementEdit) {
+        perform(edit.name) { $0.tracks = Self.applying(edit, to: $0.tracks) }
+    }
+
+
+    private static func applying(_ edit: ArrangementEdit, to tracks: [Track]) -> [Track] {
+        var tracks = tracks
+        for (id, change) in edit.changes {
+            if let index = tracks.firstIndex(where: { $0.id == id }) { change(&tracks[index].entry) }
         }
+        return tracks
     }
 
     // MARK: - Undo
@@ -201,8 +268,12 @@ final class SetDocument: ReferenceFileDocument {
     /// Seconds into the set at the playhead.
     var currentTime: TimeInterval { player?.currentTime ?? 0 }
 
-    /// Stops at the end of the set. Called by the transport while it polls the playhead.
+    /// Follows the playhead and stops at the end of the set. Called by the transport while it polls the playhead.
     func playbackTick() {
+        let layout = layout
+        let bar = layout.bar(atTime: currentTime)
+        let current = Set(layout.entries.filter { Double($0.startBar) <= bar && bar < Double($0.endBar) }.map(\.id))
+        if current != nowPlaying { nowPlaying = current }
         guard let player, player.isPlaying, player.currentTime >= layout.duration else { return }
         player.pause()
         isPlaying = false
@@ -228,6 +299,51 @@ final class SetDocument: ReferenceFileDocument {
         player?.load(layout)
     }
 
+    // MARK: - Export
+
+    /// Whether the whole set can be rendered: every track is analyzed and no export is running.
+    var canExport: Bool { !tracks.isEmpty && pendingCount == 0 && exportProgress == nil }
+
+    /// Asks where to save, then renders the set into an audio file in the background.
+    func exportMix(as format: SetExporter.Format) {
+        guard canExport, let url = ExportPanel.choose(format) else { return }
+        let layout = layout
+        exportProgress = 0
+        exportTask = Task {
+            do {
+                try await Self.export(layout, format: format, to: url, sources: Self.sources, config: Self.config) { fraction in
+                    Task { @MainActor in if self.exportProgress != nil { self.exportProgress = fraction } }
+                }
+            } catch is CancellationError {
+            } catch {
+                exportError = error.localizedDescription
+            }
+            exportProgress = nil
+            exportTask = nil
+        }
+    }
+
+    func cancelExport() { exportTask?.cancel() }
+
+    func clearExportError() { exportError = nil }
+
+    /// Reports progress only when it changes by a tenth of a percent, to keep the main actor free.
+    @concurrent
+    private static func export(
+        _ layout: SetLayout, format: SetExporter.Format, to url: URL, sources: SourceCache, config: AppConfig,
+        report: @escaping @Sendable (Double) -> Void
+    ) async throws {
+        var reported = -1
+        try SetExporter.export(layout, format: format, to: url, sources: sources, playback: config.playback, config: config.export) { fraction in
+            try Task.checkCancellation()
+            let permille = Int(fraction * 1000)
+            if permille != reported {
+                reported = permille
+                report(fraction)
+            }
+        }
+    }
+
     // MARK: - Analysis
 
     @concurrent
@@ -246,24 +362,37 @@ final class SetDocument: ReferenceFileDocument {
     }
 
     private func readTags(_ ids: [Track.ID]) async {
-        let jobs = ids.compactMap { id in tracks.first { $0.id == id }.map { (id: id, url: $0.url) } }
+        let jobs = ids.compactMap { id in tracks.first { $0.id == id && $0.status == .reading }.map { (id: id, url: $0.url) } }
         var batch = UpdateBatch()
         await forEachConcurrently(jobs, limit: Self.config.analysis.maxConcurrentTracks, operation: { job in
             await Result { try await AnalysisPipeline.readTags(url: job.url) }
         }, onResult: { job, result in
-            batch.add(job.id) { track in
-                switch result {
-                case .success(let read):
-                    track.tags = read.tags
-                    track.headerDuration = read.duration
-                    track.status = .analyzing
-                case .failure(let error):
-                    track.status = .failed(Self.describe(error))
-                }
-            }
+            batch.add(job.id) { Self.apply(result, to: &$0) }
             if batch.isDue { apply(&batch) }
         })
         apply(&batch)
+    }
+
+    /// `tracks` with their tags read, in the same order.
+    private static func readingTags(_ tracks: [Track]) async -> [Track] {
+        var read = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        await forEachConcurrently(tracks, limit: config.analysis.maxConcurrentTracks, operation: { track in
+            await Result { try await AnalysisPipeline.readTags(url: track.url) }
+        }, onResult: { track, result in
+            apply(result, to: &read[track.id]!)
+        })
+        return tracks.map { read[$0.id]! }
+    }
+
+    private static func apply(_ result: Result<(tags: TrackTags, duration: TimeInterval), any Error>, to track: inout Track) {
+        switch result {
+        case .success(let read):
+            track.tags = read.tags
+            track.headerDuration = read.duration
+            track.status = .analyzing
+        case .failure(let error):
+            track.status = .failed(describe(error))
+        }
     }
 
     private func analyze(_ ids: [Track.ID]) async {
@@ -309,6 +438,44 @@ final class SetDocument: ReferenceFileDocument {
         tracks = updated
         batch.reset()
         syncPlayer()
+    }
+}
+
+/// Imported tracks, with their tags read, some of which repeat songs already in the set.
+struct PendingImport {
+    let tracks: [Track]
+    let duplicates: Set<Track.ID>
+    let index: Int?
+}
+
+/// A change to some entries of the set, made as one undoable step.
+struct ArrangementEdit {
+    let name: String
+    let changes: [(Track.ID, (inout SetEntry) -> Void)]
+
+    /// Makes `entry` start at `bar` of the previous track, keeping the transition's length.
+    static func mixIn(of entry: PlacedEntry, after previous: PlacedEntry, atBar bar: Int) -> ArrangementEdit {
+        let cueOut = entry.previousCueOut(mixingInAt: bar, after: previous)
+        let overlap = entry.overlapBars
+        return ArrangementEdit(name: String(localized: "Move Transition"), changes: [
+            (previous.id, { $0.cueOutBar = cueOut }),
+            (entry.id, { $0.overlapBars = overlap }),
+        ])
+    }
+}
+
+extension ArrangementEdit {
+    /// Makes the transition into `entry` `length` bars long around where it is, moving neither track.
+    static func resizeTransition(of entry: PlacedEntry, after previous: PlacedEntry, to length: Int) -> ArrangementEdit {
+        let resized = entry.resizingTransition(to: length, after: previous)
+        return ArrangementEdit(name: String(localized: "Change Transition"), changes: [
+            (previous.id, { $0.cueOutBar = resized.previousCueOut }),
+            (entry.id, {
+                $0.cueInBar = resized.cueIn
+                $0.overlapBars = resized.overlap
+                $0.bassSwapBar = resized.bassSwap
+            }),
+        ])
     }
 }
 
