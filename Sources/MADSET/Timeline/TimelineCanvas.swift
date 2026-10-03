@@ -78,6 +78,17 @@ final class TimelineCanvas: NSView {
 
     private var visibleSpan: TimeInterval { Double(bounds.width) / pointsPerSecond }
 
+    /// Zooms so the clip's transition in (or its start, for the first track) fills most of the view.
+    private func zoomToTransition(of clip: TimelineClip) {
+        let margin = Double(phraseBars) * clip.barDuration
+        let span = Double(max(clip.placed.overlapBars, phraseBars)) * clip.barDuration + 2 * margin
+        pointsPerSecond = (Double(bounds.width) / span).clamped(to: Self.zoomRange)
+        origin = clip.start - margin
+        userHasNavigated = true
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+    }
+
     private func revealSelection() {
         guard let clip = clips.first(where: { $0.id == selectedID }) else { return }
         guard clip.start < time(for: 0) || clip.end > time(for: bounds.width) else { return }
@@ -163,6 +174,10 @@ final class TimelineCanvas: NSView {
         }
         let clip = clips[index]
         select(clip.id)
+        if event.clickCount == 2 {
+            zoomToTransition(of: clip)
+            return
+        }
 
         if let marker = swapMarker(at: point) {
             let owner = marker.owner.placed
@@ -324,6 +339,7 @@ final class TimelineCanvas: NSView {
             laneRect(lane).intersection(dirtyRect).fill()
         }
         drawRuler(dirtyRect)
+        drawTransitionBridges(dirtyRect)
 
         let dragged: Track.ID? = switch gesture {
         case .reorder(let id, _, _), .shift(let id, _, _, _, _): id
@@ -341,6 +357,22 @@ final class TimelineCanvas: NSView {
             drawClip(clip, in: context, dirtyRect: dirtyRect, alpha: 0.9)
         }
         drawPlayhead(dirtyRect)
+    }
+
+    /// Marks every transition across the gap between the lanes, at least a few points wide so it
+    /// stays visible when the whole set is in view.
+    private func drawTransitionBridges(_ dirtyRect: CGRect) {
+        let gap = CGRect(x: 0, y: laneRect(0).maxY, width: bounds.width, height: Self.lanePadding)
+        for clip in clips where !clip.isFirst {
+            let placed = previewPlacement(of: clip)
+            guard placed.overlapBars > 0 else { continue }
+            let start = x(for: Double(placed.startBar) * clip.barDuration)
+            let width = max(4, CGFloat(Double(placed.overlapBars) * clip.barDuration * pointsPerSecond))
+            let bridge = CGRect(x: start, y: gap.minY - 2, width: width, height: gap.height + 4)
+            guard bridge.intersects(dirtyRect) else { continue }
+            Theme.swap.withAlphaComponent(0.85).setFill()
+            NSBezierPath(roundedRect: bridge, xRadius: 2, yRadius: 2).fill()
+        }
     }
 
     private func drawRuler(_ dirtyRect: CGRect) {

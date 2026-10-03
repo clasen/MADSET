@@ -16,16 +16,16 @@ struct ContentView: View {
                 .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
             VStack(spacing: 0) {
                 TimelineView(document: document, clips: TimelineClip.clips(for: layout, tracks: document.tracks), fitRequest: fitRequest)
+                    .overlay {
+                        if document.tracks.isEmpty {
+                            ContentUnavailableView("Drop tracks or folders here", systemImage: "square.and.arrow.down",
+                                                   description: Text("MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed."))
+                                .allowsHitTesting(false)
+                        }
+                    }
                 TransportBar(document: document, layout: layout)
             }
             .frame(minWidth: 500)
-        }
-        .overlay {
-            if document.tracks.isEmpty {
-                ContentUnavailableView("Drop tracks or folders here", systemImage: "square.and.arrow.down",
-                                       description: Text("MP3, AIFF, WAV, FLAC or M4A. Tempo, beatgrid, kick, phases and key are analyzed."))
-                    .allowsHitTesting(false)
-            }
         }
         .overlay {
             if isDropTargeted {

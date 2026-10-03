@@ -119,7 +119,9 @@ public struct SetLayout: Sendable, Equatable {
 
 /// Phase-aware defaults for cue points and transitions.
 public enum TransitionPlanner {
-    /// Longest automatic overlap; DJ transitions rarely run longer than this.
+    /// Automatic overlaps span this many phrases at least and at most: shorter mixes sound abrupt,
+    /// longer ones are rare in a DJ set.
+    static let minimumOverlapPhrases = 2
     static let maximumOverlapBars = 32
 
     public static func barCount(_ analysis: TrackAnalysis) -> Int {
@@ -156,6 +158,6 @@ public enum TransitionPlanner {
         case (nil, nil): candidate = 2 * phraseBars
         }
         let phrases = min(candidate, maximumOverlapBars) / phraseBars
-        return max(1, phrases) * phraseBars
+        return max(minimumOverlapPhrases, phrases) * phraseBars
     }
 }

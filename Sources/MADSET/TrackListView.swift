@@ -1,5 +1,6 @@
 import MADSETCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The set in order, one row per track. Rows drag to reorder; Delete removes the selection.
 struct TrackListView: View {
@@ -13,6 +14,9 @@ struct TrackListView: View {
                     .tag(track.id)
             }
             .onMove { document.move(fromOffsets: $0, toOffset: $1) }
+            .onInsert(of: [.fileURL]) { index, providers in
+                FileDrop.loadURLs(from: providers) { document.importItems($0, at: index) }
+            }
         }
         .onDeleteCommand {
             if let selection = document.selection { document.remove(selection) }
@@ -94,5 +98,37 @@ struct KeyChip: View {
         } else {
             Color.clear.frame(width: 36, height: 18)
         }
+    }
+}
+
+/// File URLs carried by dropped item providers.
+enum FileDrop {
+    /// Starts loading every provider's URL and calls `completion` on the main actor, in drop order.
+    static func loadURLs(from providers: [NSItemProvider], completion: @escaping @MainActor ([URL]) -> Void) {
+        let results = Results(count: providers.count)
+        let group = DispatchGroup()
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                results.set(url, at: index)
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) {
+            MainActor.assumeIsolated { completion(results.urls) }
+        }
+    }
+
+    private final class Results: @unchecked Sendable {
+        private let lock = NSLock()
+        private var slots: [URL?]
+
+        init(count: Int) { slots = Array(repeating: nil, count: count) }
+
+        func set(_ url: URL?, at index: Int) {
+            lock.withLock { slots[index] = url }
+        }
+
+        var urls: [URL] { lock.withLock { slots.compactMap { $0 } } }
     }
 }

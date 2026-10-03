@@ -47,7 +47,7 @@ import Testing
 
     @Test func mixesBothTracksOnTheSetGrid() throws {
         let (layout, sources) = try twoTrackSet(bpm: 126)
-        #expect(layout.entries[1].overlapBars == 8)
+        #expect(layout.entries[1].overlapBars == 16)
 
         let renderer = SetRenderer(layout: layout, sources: sources, config: playback)
         let framesPerBar = renderer.framesPerBar

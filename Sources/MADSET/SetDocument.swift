@@ -91,8 +91,9 @@ final class SetDocument: ReferenceFileDocument {
 
     // MARK: - Editing
 
-    /// Adds the audio files among `urls` (folders are expanded) to the end of the set and analyzes them.
-    func importItems(_ urls: [URL]) {
+    /// Adds the audio files among `urls` (folders are expanded) at `index`, or at the end of the set,
+    /// and analyzes them. Files already in the set are skipped.
+    func importItems(_ urls: [URL], at index: Int? = nil) {
         Task {
             let files = await Self.audioFiles(in: urls)
             var known = Set(tracks.map(\.url.standardizedFileURL))
@@ -100,7 +101,9 @@ final class SetDocument: ReferenceFileDocument {
                 known.insert(url.standardizedFileURL).inserted ? Track(entry: SetEntry(file: url)) : nil
             }
             guard !added.isEmpty else { return }
-            perform(String(localized: "Import")) { $0.tracks += added }
+            perform(String(localized: "Import")) { document in
+                document.tracks.insert(contentsOf: added, at: min(index ?? document.tracks.count, document.tracks.count))
+            }
             process(added.map(\.id))
         }
     }

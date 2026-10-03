@@ -3,6 +3,11 @@ import SwiftUI
 
 @main
 struct MADSETApp: App {
+    init() {
+        // Start with a new, empty set rather than the document Open panel, which only accepts .madset files.
+        UserDefaults.standard.register(defaults: ["NSShowAppCentricOpenPanelInsteadOfUntitledFile": false])
+    }
+
     var body: some Scene {
         DocumentGroup(newDocument: { SetDocument() }) { file in
             ContentView(document: file.document)
