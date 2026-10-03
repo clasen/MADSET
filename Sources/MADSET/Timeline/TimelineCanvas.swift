@@ -16,6 +16,7 @@ import MADSETCore
 ///   audio as long as both tracks play in them.
 /// - ⌘-drag a clip, or drag the first one when it is alone, to reorder.
 /// - Right-click a clip to split it there into two tracks, at the nearest phrase (⌥ bar).
+/// - Right-click a clip to remove its track from the set; ⌘⌫ does it for the selection (see `ContentView`).
 /// - Drag the BASS marker to move the bass swap; click the ruler to move the playhead.
 /// - While playing, the view pages along with the playhead if `followsPlayhead`. Scrolling or zooming
 ///   the playhead out of view turns that off; turning it on brings the playhead back into view.
@@ -43,6 +44,7 @@ final class TimelineCanvas: NSView {
     var onEdit: (ArrangementEdit) -> Void = { _ in }
     /// Splits a track at one of its own bars.
     var onSplit: (Track.ID, _ bar: Int) -> Void = { _, _ in }
+    var onRemove: (Track.ID) -> Void = { _ in }
     /// The clips an edit would leave, to preview a drag before it is committed.
     var arrange: (ArrangementEdit) -> [TimelineClip] = { _ in [] }
     var onSeek: (TimeInterval) -> Void = { _ in }
@@ -346,27 +348,40 @@ final class TimelineCanvas: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
-        guard gesture == nil, let clip = shown.last(where: { rect(for: $0).contains(point) }), let grid = clip.analysis?.grid else { return nil }
+        guard gesture == nil, let clip = shown.last(where: { rect(for: $0).contains(point) }) else { return nil }
         select(clip.id)
+        let menu = NSMenu()
+        if let grid = clip.analysis?.grid { addSplitItem(to: menu, for: clip, grid: grid, at: point, fine: event.modifierFlags.contains(.option)) }
+        let remove = menu.addItem(withTitle: String(localized: "Remove Track"), action: #selector(removeFromMenu(_:)), keyEquivalent: "\u{8}")
+        remove.keyEquivalentModifierMask = .command
+        remove.target = self
+        remove.representedObject = clip.id
+        return menu
+    }
+
+    private func addSplitItem(to menu: NSMenu, for clip: TimelineClip, grid: BeatGrid, at point: CGPoint, fine: Bool) {
         let barWidth = clip.barDuration * pointsPerSecond
         let pointed = Double(clip.placed.cueInBar) + Double(point.x - rect(for: clip).minX) / barWidth
         let phrase = Double(phraseBars)
         let offset = Double(grid.phraseOffsetBars)
-        let snapped = event.modifierFlags.contains(.option)
+        let snapped = fine
             ? Int(pointed.rounded())
             : Int(offset + ((pointed - offset) / phrase).rounded() * phrase)
         let range = clip.placed.splitRange(before: clip.next)
         let bar = range.map { snapped.clamped(to: $0) } ?? snapped
-        let menu = NSMenu()
         let item = menu.addItem(withTitle: String(localized: "Split at Bar \(bar)"), action: range == nil ? nil : #selector(splitFromMenu(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = (clip.id, bar)
-        return menu
     }
 
     @objc private func splitFromMenu(_ item: NSMenuItem) {
         guard let (id, bar) = item.representedObject as? (Track.ID, Int) else { return }
         onSplit(id, bar)
+    }
+
+    @objc private func removeFromMenu(_ item: NSMenuItem) {
+        guard let id = item.representedObject as? Track.ID else { return }
+        onRemove(id)
     }
 
     override func resetCursorRects() {

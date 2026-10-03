@@ -18,6 +18,7 @@ struct TimelineView: NSViewRepresentable {
         canvas.onMove = { document.move($0, before: $1) }
         canvas.onEdit = { document.apply($0) }
         canvas.onSplit = { document.split($0, atBar: $1) }
+        canvas.onRemove = { document.remove($0) }
         canvas.arrange = { TimelineClip.clips(for: document.layout(applying: $0), tracks: document.tracks) }
         canvas.onSeek = { document.seek(to: $0) }
         canvas.playhead = { (document.currentTime, document.isPlaying) }

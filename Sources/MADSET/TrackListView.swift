@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The set in order, one row per track, under a library-style header. Rows drag to reorder;
-/// Delete removes the selection.
+/// ⌘⌫ removes the selection (see `ContentView`).
 struct TrackListView: View {
     @Bindable var document: SetDocument
     let layout: SetLayout
@@ -40,9 +40,6 @@ struct TrackListView: View {
             .alternatingRowBackgrounds()
             .scrollContentBackground(.hidden)
             .background(Theme.window)
-            .onDeleteCommand {
-                if let selection = document.selection { document.remove(selection) }
-            }
         }
     }
 

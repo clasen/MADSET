@@ -48,7 +48,11 @@ struct ContentView: View {
         }
         .background(Theme.window)
         .background(PlaybackTicker(document: document))
-        .background(SpaceKeyMonitor { document.togglePlayback() })
+        .background(KeyMonitor(keyCode: KeyMonitor.space, modifiers: []) { document.togglePlayback() })
+        // ⌘ so a stray Delete never drops a track; the selection is shared by the list and the timeline.
+        .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
+            if let selection = document.selection { document.remove(selection) }
+        })
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 3).padding(4).allowsHitTesting(false)
@@ -232,16 +236,28 @@ private struct PaneSplitter: View {
     }
 }
 
-/// Space toggles playback anywhere in the window except while text is being edited. A local monitor
-/// sees the key before the focused list or button, which would otherwise take it.
-private struct SpaceKeyMonitor: NSViewRepresentable {
+/// A key that acts anywhere in the window except while text is being edited; holding it acts once.
+/// A local monitor sees the key before the focused list or button, which would otherwise take it.
+private struct KeyMonitor: NSViewRepresentable {
+    static let space: UInt16 = 49
+    static let delete: UInt16 = 51
+
+    let keyCode: UInt16
+    /// Exactly the modifiers that must be held.
+    let modifiers: NSEvent.ModifierFlags
     let action: @MainActor () -> Void
 
     func makeNSView(context: Context) -> MonitorView { MonitorView() }
 
-    func updateNSView(_ view: MonitorView, context: Context) { view.action = action }
+    func updateNSView(_ view: MonitorView, context: Context) {
+        view.keyCode = keyCode
+        view.modifiers = modifiers
+        view.action = action
+    }
 
     final class MonitorView: NSView {
+        var keyCode: UInt16 = 0
+        var modifiers: NSEvent.ModifierFlags = []
         var action: @MainActor () -> Void = {}
         private var monitor: Any?
 
@@ -256,15 +272,13 @@ private struct SpaceKeyMonitor: NSViewRepresentable {
             }
         }
 
-        /// Whether the event was the space key for this window, and so consumed.
+        /// Whether the event was this key for this window, and so consumed.
         private func handle(_ event: NSEvent) -> Bool {
-            guard let window, event.window === window, event.keyCode == Self.spaceKeyCode,
-                  event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]),
+            guard let window, event.window === window, event.keyCode == keyCode,
+                  event.modifierFlags.intersection([.command, .option, .control, .shift]) == modifiers,
                   !(window.firstResponder is NSText) else { return false }
             if !event.isARepeat { action() }
             return true
         }
-
-        private static let spaceKeyCode: UInt16 = 49
     }
 }
