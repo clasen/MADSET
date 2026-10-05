@@ -289,10 +289,11 @@ private struct MixerView: View {
         .frame(width: 290)
         .overlay(alignment: .topLeading) {
             if document.monitorMode {
-                Label("Monitor", systemImage: "headphones")
-                    .textCase(.uppercase).font(.system(size: 9, weight: .heavy)).tracking(0.6)
+                Image(systemName: "headphones")
+                    .font(.system(size: 11, weight: .heavy))
                     .foregroundStyle(Color(nsColor: Theme.monitor))
                     .padding(8)
+                    .help(String(localized: "Monitor Mode"))
             }
         }
         .frame(maxHeight: .infinity)
