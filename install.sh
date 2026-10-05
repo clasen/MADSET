@@ -11,7 +11,7 @@ main() {
   local branch="main"
   local archive="https://codeload.github.com/$repo/tar.gz/refs/heads/$branch"
   local destination="$HOME/Applications/MADSET.app"
-  local stage="" backup="" arch macos swift_version source
+  local stage="" backup="" arch macos swift_version source answer=""
   local connect_timeout=15 download_timeout=600
 
   fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -76,9 +76,20 @@ main() {
   mv "$source/build/MADSET.app" "$destination" || fail 'Could not install the app. Restoring the previous version.'
   if [ -n "$backup" ]; then rm -rf "$backup"; backup=""; fi
 
-  printf 'Installed: %s\nOpen it from Finder, or run: open "%s"\n' "$destination" "$destination"
+  printf 'Installed: %s\n' "$destination"
   cleanup
   trap - EXIT
+
+  # stdin is the piped script under `curl | bash`, so ask on the terminal; skip when there is none.
+  if { : </dev/tty; } 2>/dev/null; then
+    read -r -p 'Open MADSET now? [Y/n] ' answer </dev/tty || answer=n
+  else
+    answer=n
+  fi
+  case "$answer" in
+    [nN]*) printf 'Open it from Finder, or run: open "%s"\n' "$destination" ;;
+    *) open "$destination" ;;
+  esac
 }
 
 main "$@"

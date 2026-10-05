@@ -16,7 +16,7 @@ It's alpha. It works, I use it, and it will still surprise you now and then.
 curl -fsSL https://raw.githubusercontent.com/clasen/MADSET/main/install.sh | bash
 ```
 
-That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`. To update, close MADSET and run the same command again.
+That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`, then offers to open it. To update, close MADSET and run the same command again.
 
 **It needs Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. No Swift on your Mac? The script runs `xcode-select --install` for you, waits while you click **Install** in the dialog, and carries on when it's done.
 
