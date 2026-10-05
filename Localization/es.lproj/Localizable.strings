@@ -154,6 +154,11 @@
 "Load into the timeline and decks" = "Cargar en el timeline y los decks";
 
 /* Settings */
+"General" = "General";
+"Language" = "Idioma";
+"System" = "El del sistema";
+"The new language shows after a restart." = "El idioma nuevo aparece al reiniciar.";
+"Restart Now" = "Reiniciar ahora";
 "Devices" = "Dispositivos";
 "Audio" = "Audio";
 "Main Output" = "Salida principal";

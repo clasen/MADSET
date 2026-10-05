@@ -1,3 +1,4 @@
+import AppKit
 import CoreMIDI
 import MADSETCore
 import SwiftUI
@@ -6,11 +7,65 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
+            Tab("General", systemImage: "gearshape") {
+                GeneralSettings()
+            }
             Tab("Devices", systemImage: "hifispeaker") {
                 DevicesSettings(settings: .shared)
             }
         }
         .frame(width: 560)
+    }
+}
+
+/// The UI language. macOS picks it at launch from `AppleLanguages`, so a change applies on restart.
+private struct GeneralSettings: View {
+    private static let languageKey = "language"
+    private static let launchLanguage = UserDefaults.standard.string(forKey: languageKey)
+
+    /// Language code of a bundled localization; nil follows the system.
+    @State private var language = UserDefaults.standard.string(forKey: languageKey)
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Language", selection: $language) {
+                    Text("System").tag(String?.none)
+                    Divider()
+                    ForEach(Set(Bundle.main.localizations).subtracting(["Base"]).sorted(), id: \.self) { code in
+                        Text(Locale(identifier: code).localizedString(forLanguageCode: code)?.localizedCapitalized ?? code)
+                            .tag(String?.some(code))
+                    }
+                }
+                .onChange(of: language) { _, language in
+                    UserDefaults.standard.set(language, forKey: Self.languageKey)
+                    UserDefaults.standard.set(language.map { [$0] }, forKey: "AppleLanguages")
+                }
+            } footer: {
+                if language != Self.launchLanguage {
+                    HStack {
+                        Text("The new language shows after a restart.")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Restart Now", action: Self.relaunch)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Quits, saving the open sets, and opens the app again once this process has exited.
+    private static func relaunch() {
+        let reopen = Process()
+        reopen.executableURL = URL(filePath: "/bin/sh")
+        reopen.arguments = [
+            "-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.1; done; open \"$0\"",
+            Bundle.main.bundlePath,
+        ]
+        try? reopen.run()
+        NSApp.terminate(nil)
     }
 }
 
