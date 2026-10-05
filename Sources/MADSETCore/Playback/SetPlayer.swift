@@ -108,6 +108,15 @@ public final class SetPlayer: @unchecked Sendable {
 
     public func pause() { shared.transport.store(Transport.paused.rawValue, ordering: .releasing) }
 
+    /// Audio is coming out: not paused, nor waiting to start.
+    public var isSounding: Bool { shared.isSounding }
+
+    /// While audio comes out, goes on at the next bar line from `bars` bars past it, without a gap and
+    /// within the set; moves asked for before it gets there add up. Otherwise see `move(to:)`.
+    public func move(byBars bars: Int) {
+        shared.commands.withLock { $0.append(.jumpBy(bars)) }
+    }
+
     /// Gains of its own audio and of what the player it follows plays; see `CueMix`. They apply from
     /// the next audio buffer on, gliding over it.
     public func setLevels(own: Float, reference: Float) {
@@ -195,9 +204,16 @@ private struct Producer {
                 case .jump(let time):
                     guard let renderer else { continue }
                     let target = SetPlayer.frame(of: time, sampleRate: config.sampleRate)
-                    var bar = (Double(renderer.position) / renderer.framesPerBar).rounded(.down) + 1
-                    if Int((bar * renderer.framesPerBar).rounded()) <= renderer.position { bar += 1 }
-                    jump = (target, Int((bar * renderer.framesPerBar).rounded()))
+                    jump = (target, nextBarLine(of: renderer))
+                    renderer.prefetch(from: target)
+                case .jumpBy(let bars):
+                    guard let renderer else { continue }
+                    let at = jump?.at ?? nextBarLine(of: renderer)
+                    let from = Double(jump?.target ?? at) / renderer.framesPerBar
+                    let bar = min(max(0, from.rounded() + Double(bars)), Double(max(0, renderer.layout.totalBars - 1)))
+                    let target = Int((bar * renderer.framesPerBar).rounded())
+                    jump = (target, at)
+                    shared.requestedJump.store(target, ordering: .releasing)
                     renderer.prefetch(from: target)
                 case .layout(let layout):
                     guard let current = renderer else {
@@ -258,6 +274,13 @@ private struct Producer {
     }
 
 
+    /// The first bar line the renderer has not rendered yet.
+    private func nextBarLine(of renderer: SetRenderer) -> Int {
+        var bar = (Double(renderer.position) / renderer.framesPerBar).rounded(.down) + 1
+        if Int((bar * renderer.framesPerBar).rounded()) <= renderer.position { bar += 1 }
+        return Int((bar * renderer.framesPerBar).rounded())
+    }
+
     /// Keeps the playhead on what plays after an edit moved it `frames` along the set: from the next
     /// frame written while playing, so it goes on without a break; otherwise at once.
     func follow(renderer: SetRenderer, movedBy frames: Int) {
@@ -301,6 +324,9 @@ private final class SharedState: @unchecked Sendable {
         case start
         /// Goes on from this time at the next bar line, without a gap.
         case jump(TimeInterval)
+        /// Goes on at the next bar line from this many bars past it, or past where a jump waiting for
+        /// it goes on from.
+        case jumpBy(Int)
     }
 
     let clock: PlayheadClock

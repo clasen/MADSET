@@ -284,7 +284,6 @@ private struct MixerView: View {
                 ChannelMeter(levels: decks[1].levels(at: time), color: Theme.decks[1])
             }
             TempoControl(document: document, layout: layout)
-            if document.monitorMode { CueControls(settings: .shared) }
         }
         .padding(12)
         .frame(width: 290)
@@ -299,29 +298,6 @@ private struct MixerView: View {
         }
         .frame(maxHeight: .infinity)
         .background(Theme.panel)
-    }
-}
-
-/// The headphones: their level, and how much of the main output they hear next to the monitor.
-private struct CueControls: View {
-    @Bindable var settings: DeviceSettings
-
-    var body: some View {
-        let tint = Color(nsColor: Theme.monitor)
-        HStack(spacing: 6) {
-            Image(systemName: "speaker.wave.2.fill").font(.system(size: 9)).foregroundStyle(.secondary)
-            Slider(value: $settings.monitorLevel, in: 0...1)
-                .frame(width: 70)
-                .help(String(localized: "Headphones level"))
-            Spacer(minLength: 8)
-            Image(systemName: "headphones").font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
-            Slider(value: $settings.cueMix, in: 0...1)
-                .frame(width: 90)
-                .help(String(localized: "Cue mix: the monitor alone on the left, the main output alone on the right"))
-            Image(systemName: "hifispeaker.fill").font(.system(size: 10)).foregroundStyle(.secondary)
-        }
-        .controlSize(.mini)
-        .tint(tint)
     }
 }
 

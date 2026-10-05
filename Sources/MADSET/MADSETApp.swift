@@ -85,6 +85,18 @@ private struct SetCommands: Commands {
             Button("Back to Start") { document?.seek(to: 0) }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
                 .disabled(document == nil)
+            Button("Forward a Phrase") { document.map { $0.move(byBars: $0.phraseBars) } }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(document == nil)
+            Button("Back a Phrase") { document.map { $0.move(byBars: -$0.phraseBars) } }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(document == nil)
+            Button("Forward a Bar") { document?.move(byBars: 1) }
+                .keyboardShortcut(.rightArrow, modifiers: [.option])
+                .disabled(document == nil)
+            Button("Back a Bar") { document?.move(byBars: -1) }
+                .keyboardShortcut(.leftArrow, modifiers: [.option])
+                .disabled(document == nil)
             Divider()
             Toggle("Monitor Mode", isOn: Binding { document?.monitorMode == true } set: { document?.setMonitorMode($0) })
                 .keyboardShortcut("m", modifiers: [])

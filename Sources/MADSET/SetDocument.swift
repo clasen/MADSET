@@ -352,6 +352,22 @@ final class SetDocument {
         refreshTransport()
     }
 
+    /// Moves the playhead, or the monitor head in monitor mode, `bars` bars. A playing one goes on at
+    /// its next bar line that many bars past it, without a gap; moves made before it gets there add up.
+    func move(byBars bars: Int) {
+        guard let player = transportPlayer() else { return }
+        if player.isSounding {
+            player.move(byBars: bars)
+        } else {
+            let bar = layout.bar(atTime: player.pendingMove ?? player.currentTime).rounded() + Double(bars)
+            play { try player.move(to: layout.time(ofBar: clampedBar(bar))) }
+        }
+        refreshTransport()
+    }
+
+    /// Bars an arrow key moves a head by; with ⌥, one.
+    var phraseBars: Int { Self.config.analysis.phraseBars }
+
     /// Seconds into the set at the playhead.
     var currentTime: TimeInterval { player?.currentTime ?? 0 }
 

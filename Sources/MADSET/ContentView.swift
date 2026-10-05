@@ -63,6 +63,10 @@ struct ContentView: View {
         .background(PlaybackTicker(document: document))
         .background(KeyMonitor(keyCode: KeyMonitor.space, modifiers: []) { document.togglePlayback() })
         .background(KeyMonitor(keyCode: KeyMonitor.m, modifiers: []) { document.setMonitorMode(!document.monitorMode) })
+        .background(KeyMonitor(keyCode: KeyMonitor.left, modifiers: []) { document.move(byBars: -document.phraseBars) })
+        .background(KeyMonitor(keyCode: KeyMonitor.right, modifiers: []) { document.move(byBars: document.phraseBars) })
+        .background(KeyMonitor(keyCode: KeyMonitor.left, modifiers: .option) { document.move(byBars: -1) })
+        .background(KeyMonitor(keyCode: KeyMonitor.right, modifiers: .option) { document.move(byBars: 1) })
         // ⌘ so a stray Delete never drops a track. The list and the timeline share the selection
         // while the list shows the loaded set; otherwise it removes from the one with the focus.
         .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
@@ -312,6 +316,8 @@ private struct KeyMonitor: NSViewRepresentable {
     static let space: UInt16 = 49
     static let delete: UInt16 = 51
     static let m: UInt16 = 46
+    static let left: UInt16 = 123
+    static let right: UInt16 = 124
 
     let keyCode: UInt16
     /// Exactly the modifiers that must be held.

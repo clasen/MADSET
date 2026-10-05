@@ -98,6 +98,20 @@ private struct DevicesSettings: View {
                     }
                     .labelsHidden()
                 }
+                Group {
+                    LabeledContent("Headphones Level") {
+                        Slider(value: $settings.monitorLevel, in: 0...1)
+                    }
+                    LabeledContent("Cue Mix") {
+                        HStack {
+                            Text("Monitor").foregroundStyle(.secondary)
+                            Slider(value: $settings.cueMix, in: 0...1)
+                            Text("Main").foregroundStyle(.secondary)
+                        }
+                    }
+                    .help(String(localized: "What the headphones hear in monitor mode: the monitor alone, the main output alone, or both"))
+                }
+                .disabled(!settings.hasMonitorOutput)
             } header: {
                 Text("Audio")
             } footer: {

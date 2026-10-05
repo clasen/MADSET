@@ -89,6 +89,28 @@ import Testing
         #expect(abs(player.currentTime - (target + before + 2 - layout.barDuration)) < 0.01)
     }
 
+    @Test func movesByBarsAtTheNextBarLineAndAddsUpMovesBeforeIt() throws {
+        let (player, engine, layout) = try makePlayer()
+        try player.play()
+        _ = try pull(engine, seconds: 1)
+        let before = player.currentTime
+        #expect(player.isSounding)
+        player.move(byBars: 8)
+        player.move(byBars: -2)
+        Thread.sleep(forTimeInterval: 0.05)
+        // Bar 1 is the next bar line; it goes on six bars past it, at bar 7.
+        #expect(abs((player.pendingMove ?? 0) - layout.time(ofBar: 7)) < 1 / sampleRate)
+
+        let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1_024)!
+        for _ in 0..<Int(2 * sampleRate / 512) {
+            Thread.sleep(forTimeInterval: 0.002)
+            #expect(try engine.renderOffline(512, to: buffer) == .success)
+            #expect((0..<Int(buffer.frameLength)).contains { buffer.floatChannelData![0][$0] != 0 }, "A block went silent")
+        }
+        #expect(player.pendingMove == nil)
+        #expect(abs(player.currentTime - (before + 2 + layout.time(ofBar: 6))) < 0.01)
+    }
+
     @Test func removingAPlayedTrackThatChangesTheTempoStaysOnWhatPlays() throws {
         var config = AppConfig.current.playback
         config.sampleRate = sampleRate
