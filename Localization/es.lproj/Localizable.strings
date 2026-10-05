@@ -37,6 +37,8 @@
 "Preview" = "Pre-escuchar";
 "Play this transition on the monitor output, from a few bars before it, in time with the set (turns monitor mode on)" = "Escuchar esta transición por la salida de monitoreo, desde unos compases antes, a tiempo con el set (prende el modo monitor)";
 "Monitor Mode" = "Modo monitor";
+"Headphones level" = "Nivel de auriculares";
+"Cue mix: the monitor alone on the left, the main output alone on the right" = "Mezcla de cue: a la izquierda solo el monitor, a la derecha solo la salida principal";
 "Monitor" = "Monitor";
 "Main %@" = "Principal %@";
 "Monitor mode (M): play, pause and clicks on the ruler or the decks move a second head that plays through the monitor output, in time with the set, while the set goes on" = "Modo monitor (M): play, pausa y los clics en la regla o en los decks mueven un segundo cabezal que suena por la salida de monitoreo, a tiempo con el set, mientras el set sigue";

@@ -50,6 +50,22 @@ final class DeviceSettings {
         }
     }
 
+    /// Headphones level of the monitor output, 0 to 1.
+    var monitorLevel: Double {
+        didSet {
+            UserDefaults.standard.set(monitorLevel, forKey: Keys.monitorLevel)
+            applyLevels()
+        }
+    }
+
+    /// What the headphones hear, from the monitor alone (0) to the main output alone (1).
+    var cueMix: Double {
+        didSet {
+            UserDefaults.standard.set(cueMix, forKey: Keys.cueMix)
+            applyLevels()
+        }
+    }
+
     /// Unique ID of the MIDI destination that gets clock; nil sends none.
     var clockDestination: MIDIUniqueID? {
         didSet {
@@ -72,22 +88,29 @@ final class DeviceSettings {
     @ObservationIgnored private var deviceObserver: AudioDevices.DeviceObserver?
     @ObservationIgnored private let players = NSHashTable<SetPlayer>.weakObjects()
     @ObservationIgnored private let monitors = NSHashTable<SetPlayer>.weakObjects()
+    /// Monitors in monitor mode, whose headphones get the level and the cue mix.
+    @ObservationIgnored private let listening = NSHashTable<SetPlayer>.weakObjects()
 
     private enum Keys {
         static let mainOutput = "mainOutput"
         static let monitorOutput = "monitorOutput"
         static let mainChannel = "mainOutputChannel"
         static let monitorChannel = "monitorOutputChannel"
+        static let monitorLevel = "monitorLevel"
+        static let cueMix = "cueMix"
         static let clockDestination = "midiClockDestination"
         static let clockOffset = "midiClockOffset"
     }
 
     private init() {
         let defaults = UserDefaults.standard
+        defaults.register(defaults: [Keys.monitorLevel: 1.0, Keys.cueMix: 0.0])
         mainOutput = defaults.string(forKey: Keys.mainOutput)
         monitorOutput = defaults.string(forKey: Keys.monitorOutput)
         mainChannel = defaults.integer(forKey: Keys.mainChannel)
         monitorChannel = defaults.integer(forKey: Keys.monitorChannel)
+        monitorLevel = defaults.double(forKey: Keys.monitorLevel)
+        cueMix = defaults.double(forKey: Keys.cueMix)
         clockDestination = (defaults.object(forKey: Keys.clockDestination) as? Int).map { MIDIUniqueID($0) }
         clockOffset = defaults.double(forKey: Keys.clockOffset)
 
@@ -120,6 +143,14 @@ final class DeviceSettings {
     func registerMonitor(_ monitor: SetPlayer) {
         monitors.add(monitor)
         applyMonitor(to: monitor)
+        applyLevels(to: monitor)
+    }
+
+    /// Gives `monitor`'s headphones the level and the cue mix while it is in monitor mode, and
+    /// silence otherwise.
+    func setListening(_ monitor: SetPlayer, _ isListening: Bool) {
+        if isListening { listening.add(monitor) } else { listening.remove(monitor) }
+        applyLevels(to: monitor)
     }
 
     /// Whether the monitor output and its channels are there to preview through.
@@ -158,6 +189,16 @@ final class DeviceSettings {
     private func applyMainOutput() {
         let target = mainTarget
         for player in players.allObjects { apply(target, to: player) }
+    }
+
+    private func applyLevels() {
+        for monitor in monitors.allObjects { applyLevels(to: monitor) }
+    }
+
+    private func applyLevels(to monitor: SetPlayer) {
+        guard listening.contains(monitor) else { return monitor.setLevels(own: 0, reference: 0) }
+        let gains = CueMix.gains(level: monitorLevel, mix: cueMix)
+        monitor.setLevels(own: gains.own, reference: gains.reference)
     }
 
     private func applyMonitorOutput() {

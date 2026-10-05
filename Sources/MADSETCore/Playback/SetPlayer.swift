@@ -5,28 +5,34 @@ import Synchronization
 /// Plays a `SetLayout`. A producer thread mixes ahead of the playhead into a ring buffer; the audio
 /// callback only copies from it. Layout edits reach the producer without interrupting tracks whose
 /// placement is unchanged; seeks and tempo changes flush the buffer. Playing starts once audio is
-/// buffered; a player that follows another one's clock then waits for its beat, to play in phase with it.
+/// buffered; a player that follows another one then waits for its beat, to play in phase with it, and
+/// can mix in what the other one plays, as it is heard, for a cue mix.
 public final class SetPlayer: @unchecked Sendable {
     private let config: AppConfig.Playback
     private let engine: AVAudioEngine
     private let shared: SharedState
     /// Where the set's beats are heard while it plays.
     public let clock: PlayheadClock
+    /// What it plays, as it is heard, for a player that follows it.
+    public let heard: HeardAudio
     private let reference: PlayheadClock?
     /// First of the two device channels the player plays through, from 0.
     private let firstChannel = Atomic<Int>(0)
     private var configurationObserver: NSObjectProtocol?
 
     /// `engine` is injectable so tests can render without a sound device (manual rendering mode).
-    /// Following `reference`, every start waits for a beat of it while it plays, at the same place in the bar.
+    /// Following `reference`, every start waits for a beat of it while it plays, at the same place in
+    /// the bar, and `setLevels` mixes in what it plays.
     public init(config: AppConfig.Playback, sources: SourceCache, engine: AVAudioEngine = AVAudioEngine(),
-                following reference: PlayheadClock? = nil) throws {
+                following reference: SetPlayer? = nil) throws {
         self.config = config
         self.engine = engine
-        self.reference = reference
+        self.reference = reference?.clock
         clock = PlayheadClock(sampleRate: config.sampleRate)
+        heard = HeardAudio(sampleRate: config.sampleRate, writeAhead: config.blockFrames)
         shared = SharedState(capacity: Int(config.bufferSeconds * config.sampleRate) + config.blockFrames,
-                             sampleRate: config.sampleRate, clock: clock, reference: reference)
+                             sampleRate: config.sampleRate, clock: clock, heard: heard,
+                             reference: reference.map { ($0.clock, $0.heard) })
 
         guard let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2) else {
             preconditionFailure("Unsupported playback format")
@@ -101,6 +107,13 @@ public final class SetPlayer: @unchecked Sendable {
     }
 
     public func pause() { shared.transport.store(Transport.paused.rawValue, ordering: .releasing) }
+
+    /// Gains of its own audio and of what the player it follows plays; see `CueMix`. They apply from
+    /// the next audio buffer on, gliding over it.
+    public func setLevels(own: Float, reference: Float) {
+        shared.ownGain.store(own.bitPattern, ordering: .releasing)
+        shared.referenceGain.store(reference.bitPattern, ordering: .releasing)
+    }
 
     /// Moves the playhead to `time`, the start of a bar. While audio plays, it plays on to the next
     /// bar line and goes on from `time` there, without a gap and keeping its phase; a player about to
@@ -289,7 +302,9 @@ private final class SharedState: @unchecked Sendable {
     }
 
     let clock: PlayheadClock
-    let reference: PlayheadClock?
+    let heard: HeardAudio
+    /// The clock and the audio of the player this one follows.
+    let reference: (clock: PlayheadClock, heard: HeardAudio)?
     let commands = Mutex<[Command]>([])
     let running = Atomic<Bool>(true)
     let transport = Atomic<Int>(Transport.paused.rawValue)
@@ -300,6 +315,15 @@ private final class SharedState: @unchecked Sendable {
     let consumed = Atomic<Int>(0)
     /// Set frame the last jump asked for goes on from, until it is played; -1 when none waits.
     let requestedJump = Atomic<Int>(-1)
+    /// Bit patterns of the gains `setLevels` asks for.
+    let ownGain = Atomic<UInt32>(Float(1).bitPattern)
+    let referenceGain = Atomic<UInt32>(Float(0).bitPattern)
+    /// `heard`'s count at the first frame written after the last flush.
+    private let heardBase = Atomic<Int>(0)
+    /// Audio callback only: the gains of the last buffer, and how far into the reference's audio it read.
+    private var lastOwnGain: Float = 1
+    private var lastReferenceGain: Float = 0
+    private var referenceCursor: Int?
 
     private let capacity: Int
     private let sampleRate: Double
@@ -314,10 +338,12 @@ private final class SharedState: @unchecked Sendable {
     private let jumpCount = Atomic<Int>(0)
     private let jumpBase = Atomic<Int>(0)
 
-    init(capacity: Int, sampleRate: Double, clock: PlayheadClock, reference: PlayheadClock?) {
+    init(capacity: Int, sampleRate: Double, clock: PlayheadClock, heard: HeardAudio,
+         reference: (clock: PlayheadClock, heard: HeardAudio)?) {
         self.capacity = capacity
         self.sampleRate = sampleRate
         self.clock = clock
+        self.heard = heard
         self.reference = reference
         left = .allocate(capacity: capacity)
         right = .allocate(capacity: capacity)
@@ -341,6 +367,7 @@ private final class SharedState: @unchecked Sendable {
             right[index] = sourceRight[i]
         }
         written.store(start + frames, ordering: .releasing)
+        heard.write(left: source, right: sourceRight, frames: frames)
     }
 
     var jumpPending: Bool { jumpIsPending.load(ordering: .acquiring) }
@@ -361,6 +388,7 @@ private final class SharedState: @unchecked Sendable {
     func reset(baseFrame frame: Int) {
         jumpIsPending.store(false, ordering: .releasing)
         requestedJump.store(-1, ordering: .releasing)
+        heardBase.store(heard.count, ordering: .releasing)
         written.store(0, ordering: .releasing)
         read.store(0, ordering: .releasing)
         baseFrame.store(frame, ordering: .releasing)
@@ -371,8 +399,15 @@ private final class SharedState: @unchecked Sendable {
     /// without moving the playhead in bars.
     func consume(left output: UnsafeMutablePointer<Float>, right outputRight: UnsafeMutablePointer<Float>, frames: Int,
                  at timestamp: AudioTimeStamp) {
+        let gains = (own: Float(bitPattern: ownGain.load(ordering: .acquiring)), reference: Float(bitPattern: referenceGain.load(ordering: .acquiring)))
+        defer {
+            mixReference(into: output, outputRight, frames: frames, at: timestamp, gain: (lastReferenceGain, gains.reference))
+            lastOwnGain = gains.own
+            lastReferenceGain = gains.reference
+        }
         if flushing.load(ordering: .acquiring) {
             flushAcknowledged.store(true, ordering: .releasing)
+            heard.silence()
             output.update(repeating: 0, count: frames)
             outputRight.update(repeating: 0, count: frames)
             return
@@ -391,11 +426,17 @@ private final class SharedState: @unchecked Sendable {
         if playing {
             clock.publish(frame: playheadFrame - offset, at: timestamp)
             let start = read.load(ordering: .relaxed)
+            if let heardAt = clock.heardTime(of: timestamp) {
+                heard.publish(frame: heardBase.load(ordering: .acquiring) + start, heardAt: heardAt + Double(offset) / sampleRate)
+            } else {
+                heard.silence()
+            }
             copied = min(frames - offset, written.load(ordering: .acquiring) - start)
             for i in 0..<copied {
                 let index = (start + i) % capacity
-                output[offset + i] = left[index]
-                outputRight[offset + i] = right[index]
+                let gain = lastOwnGain + (gains.own - lastOwnGain) * Float(offset + i) / Float(frames)
+                output[offset + i] = left[index] * gain
+                outputRight[offset + i] = right[index] * gain
             }
             read.store(start + copied, ordering: .releasing)
             consumed.add(copied, ordering: .releasing)
@@ -408,6 +449,7 @@ private final class SharedState: @unchecked Sendable {
             }
         } else {
             clock.stop()
+            heard.silence()
         }
         output.update(repeating: 0, count: offset)
         outputRight.update(repeating: 0, count: offset)
@@ -417,12 +459,25 @@ private final class SharedState: @unchecked Sendable {
         }
     }
 
+    /// Audio callback side: adds what the followed player plays, as heard with this buffer, and keeps
+    /// the sum from clipping.
+    private func mixReference(into output: UnsafeMutablePointer<Float>, _ outputRight: UnsafeMutablePointer<Float>, frames: Int,
+                              at timestamp: AudioTimeStamp, gain: (from: Float, to: Float)) {
+        guard let reference, gain.from > 0 || gain.to > 0, let heardAt = clock.heardTime(of: timestamp) else {
+            referenceCursor = nil
+            return
+        }
+        referenceCursor = reference.heard.mix(into: output, outputRight, frames: frames, heardAt: heardAt, gain: gain, cursor: referenceCursor)
+        SetRenderer.softClip(output, frames)
+        SetRenderer.softClip(outputRight, frames)
+    }
+
     /// Audio callback side, while armed: the frame of this buffer to start at once there is audio for it
     /// and for skipping a late start, in phase with the reference while it plays (negative when that went
     /// by within this buffer); nil to wait.
     private func startOffset(frames: Int, at timestamp: AudioTimeStamp) -> Int? {
         guard written.load(ordering: .acquiring) - read.load(ordering: .relaxed) >= 2 * frames else { return nil }
-        guard let position = reference?.position, let heard = clock.heardTime(of: timestamp) else { return 0 }
+        guard let position = reference?.clock.position, let heard = clock.heardTime(of: timestamp) else { return 0 }
         let framesPerBeat = sampleRate / position.beatsPerSecond
         return PhaseAlignment.offset(startBeat: Double(playheadFrame) / framesPerBeat,
                                      referenceBeat: position.beat + (heard - position.hostTime) * position.beatsPerSecond,

@@ -149,8 +149,8 @@ public final class SetRenderer {
             voice.equalizers[1].process(scratch[1] + from, frames: to - from, from: gainsFrom, to: gainsTo, addingInto: right + from)
         }
         voices = voices.filter { active.contains($0.key) }
-        softClip(left, frames)
-        softClip(right, frames)
+        Self.softClip(left, frames)
+        Self.softClip(right, frames)
         position = blockEnd
         prefetchUpcoming()
     }
@@ -201,7 +201,7 @@ public final class SetRenderer {
     }
 
     /// Transparent below 0.8, then a tanh knee that never exceeds 1.
-    private func softClip(_ samples: UnsafeMutablePointer<Float>, _ frames: Int) {
+    static func softClip(_ samples: UnsafeMutablePointer<Float>, _ frames: Int) {
         for i in 0..<frames {
             let x = samples[i]
             let magnitude = abs(x)

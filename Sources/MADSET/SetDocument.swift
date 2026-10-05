@@ -363,6 +363,7 @@ final class SetDocument {
         guard on != monitorMode else { return }
         guard on else {
             monitor?.pause()
+            if let monitor { DeviceSettings.shared.setListening(monitor, false) }
             monitorMode = false
             refreshTransport()
             return
@@ -370,6 +371,7 @@ final class SetDocument {
         let isNew = monitor == nil
         guard let monitor = ensureMonitor() else { return }
         if isNew { monitor.seek(to: layout.time(ofBar: clampedBar(layout.bar(atTime: currentTime).rounded(.up)))) }
+        DeviceSettings.shared.setListening(monitor, true)
         monitorMode = true
     }
 
@@ -445,7 +447,7 @@ final class SetDocument {
         if let monitor { return monitor }
         guard let player = ensurePlayer() else { return nil }
         do {
-            let monitor = try SetPlayer(config: Self.config.playback, sources: Self.sources, following: player.clock)
+            let monitor = try SetPlayer(config: Self.config.playback, sources: Self.sources, following: player)
             DeviceSettings.shared.registerMonitor(monitor)
             monitor.load(layout)
             self.monitor = monitor
