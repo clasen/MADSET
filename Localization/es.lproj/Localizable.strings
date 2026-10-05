@@ -57,8 +57,7 @@
 "Set BPM" = "BPM del set";
 "Volume and lows of the deck" = "Volumen y graves del deck";
 "Auto" = "Auto";
-"Median tempo of the tracks. Change it to fix the set tempo." = "Tempo mediano de los temas. Cambialo para fijar el tempo del set.";
-"Follow the median tempo of the tracks" = "Seguir el tempo mediano de los temas";
+"Set the tempo to the median of the tracks. Later edits don't change it." = "Poner el tempo en la mediana de los temas. Las ediciones posteriores no lo cambian.";
 "Bass swap" = "Bass swap";
 "Mix in" = "Entra en";
 "Length" = "Duración";

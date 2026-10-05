@@ -57,7 +57,7 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 
 **Transitions that land on the phrase.** Each track mixes into the previous one in phase, with the bass swap where it belongs. If you don't like it, change the mix-in bar, length, bass swap, fades, cue in and cue out, bar by bar. **Auto** puts it back.
 
-**One tempo for the whole set.** Leave it on the median of your tracks or pick a set BPM, and every track is stretched to it in real time with [Rubber Band](https://breakfastquay.com/rubberband/).
+**One tempo for the whole set.** It starts on the median of your tracks; pick another set BPM or press Auto to take the median again. Edits never change it, so a track removed live doesn't retempo the set. Every track is stretched to it in real time with [Rubber Band](https://breakfastquay.com/rubberband/).
 
 **Order by what matters.** Sort the set, or just the selected tracks, by set curve, energy, key (a walk around the Camelot wheel) or BPM. Undo if it's worse.
 

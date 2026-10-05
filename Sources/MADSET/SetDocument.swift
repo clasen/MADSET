@@ -20,7 +20,8 @@ final class SetDocument {
     private(set) var tracks: [Track] = [] {
         didSet { storeSaved() }
     }
-    /// Tempo of the set; nil follows the tracks (median tempo).
+    /// Tempo of the set. Nil until every track has been analyzed, when it is set once to the median
+    /// of the tracks (followed meanwhile); from then on only the user changes it, never an edit.
     private(set) var tempo: Double? {
         didSet { storeSaved() }
     }
@@ -123,8 +124,11 @@ final class SetDocument {
     // MARK: - Derived state
 
     var effectiveTempo: Double {
-        tempo ?? SetLayout.suggestedBPM(tracks.compactMap(\.bpm)) ?? Self.config.playback.emptySetBPM
+        tempo ?? medianTempo ?? Self.config.playback.emptySetBPM
     }
+
+    /// The median tempo of the analyzed tracks, on a half BPM.
+    var medianTempo: Double? { SetLayout.suggestedBPM(tracks.compactMap(\.bpm)) }
 
     var layout: SetLayout { Self.layout(of: tracks, bpm: effectiveTempo) }
 
@@ -244,8 +248,20 @@ final class SetDocument {
         selection.subtract(ids)
     }
 
-    func setTempo(_ bpm: Double?) {
-        perform(String(localized: "Change Tempo")) { $0.tempo = bpm.map { min(max($0, 60), 200) } }
+    func setTempo(_ bpm: Double) {
+        perform(String(localized: "Change Tempo")) { $0.tempo = min(max(bpm, 60), 200) }
+    }
+
+    /// Sets the tempo to the median of the tracks, once: later edits leave it.
+    func applyMedianTempo() {
+        guard let medianTempo else { return }
+        setTempo(medianTempo)
+    }
+
+    /// A set without a tempo takes the median of its tracks once all of them are analyzed.
+    private func fixTempoIfNeeded() {
+        guard tempo == nil, pendingCount == 0, let medianTempo else { return }
+        tempo = medianTempo
     }
 
     /// Changes one transition or cue setting of a track; nil returns it to automatic.
@@ -304,6 +320,7 @@ final class SetDocument {
         }
         let stale = tracks.filter { $0.isPending && live[$0.id] == nil }.map(\.id)
         if !stale.isEmpty { process(stale) }
+        fixTempoIfNeeded()
         syncPlayer()
     }
 
@@ -602,6 +619,7 @@ final class SetDocument {
         }
         tracks = updated
         batch.reset()
+        fixTempoIfNeeded()
         syncPlayer()
     }
 }

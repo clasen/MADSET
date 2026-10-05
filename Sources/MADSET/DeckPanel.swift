@@ -356,16 +356,17 @@ private struct TempoControl: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            let automatic = document.tempo == nil
-            Button { document.setTempo(automatic ? layout.bpm : nil) } label: {
+            let median = document.medianTempo
+            Button { document.applyMedianTempo() } label: {
                 Text("Auto")
                     .textCase(.uppercase)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(automatic ? .white : .secondary)
+                    .foregroundStyle(.secondary)
                     .frame(width: 52, height: 24)
-                    .background(automatic ? Theme.decks[0] : Theme.control, in: RoundedRectangle(cornerRadius: 5))
+                    .background(Theme.control, in: RoundedRectangle(cornerRadius: 5))
             }
-            .help(automatic ? String(localized: "Median tempo of the tracks. Change it to fix the set tempo.") : String(localized: "Follow the median tempo of the tracks"))
+            .disabled(median == nil || median == layout.bpm)
+            .help(String(localized: "Set the tempo to the median of the tracks. Later edits don't change it."))
             VStack(spacing: 0) {
                 Text(String(format: "%.1f", layout.bpm)).font(.system(size: 17, weight: .semibold)).monospacedDigit()
                 Text("Set BPM").textCase(.uppercase).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
