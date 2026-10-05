@@ -39,7 +39,14 @@ main() {
   [ "${macos%%.*}" -ge 26 ] || fail "MADSET needs macOS 26 or newer. This Mac runs $macos."
 
   command -v curl >/dev/null || fail 'curl is missing.'
-  command -v swift >/dev/null || fail 'Swift is missing. Install the Command Line Tools with: xcode-select --install'
+  # /usr/bin/swift exists on every Mac as a shim; the toolchain is there once xcode-select has a path.
+  if ! xcode-select -p >/dev/null 2>&1; then
+    printf 'Swift is missing. Opening the installer for the Command Line Tools (Swift included)…\n'
+    xcode-select --install >/dev/null 2>&1 || true
+    printf 'Click Install in the dialog. Waiting for it to finish (Ctrl-C to cancel)…\n'
+    until xcode-select -p >/dev/null 2>&1 && xcrun --find swift >/dev/null 2>&1; do sleep 5; done
+    printf 'Command Line Tools installed.\n'
+  fi
   swift_version="$(swift --version 2>&1 | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
   [ -n "$swift_version" ] || fail 'Could not read the Swift version. Check that xcode-select points to a working toolchain.'
   { [ "${swift_version%%.*}" -gt 6 ] || { [ "${swift_version%%.*}" -eq 6 ] && [ "${swift_version#*.}" -ge 2 ]; }; } \

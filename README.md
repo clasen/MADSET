@@ -18,11 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/clasen/MADSET/main/install.sh | bas
 
 That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`. To update, close MADSET and run the same command again.
 
-**You need Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. If `swift` isn't there, the script tells you, and this fixes it:
-
-```bash
-xcode-select --install
-```
+**It needs Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. No Swift on your Mac? The script runs `xcode-select --install` for you, waits while you click **Install** in the dialog, and carries on when it's done.
 
 The build takes well under a minute on an M-series Mac. The app is signed ad hoc on your own machine, so macOS doesn't complain.
 
@@ -73,7 +69,7 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 - Duplicate check on import, because that one track always shows up twice
 - Sets live in `~/Music/MADSET`, folders are groups, and everything saves itself. Browse other sets without stopping playback
 - Export the whole mix as WAV or AAC
-- English and Spanish (rioplatense, che)
+- English and Spanish
 
 ## Standing on good shoulders
 
