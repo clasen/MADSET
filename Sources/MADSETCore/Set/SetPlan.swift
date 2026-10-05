@@ -94,16 +94,6 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     /// Bar of the set where the track's own bar 0 falls; each set bar plays the track's bar that far in.
     public var trackOrigin: Int { startBar - cueInBar }
 
-    /// Whether the transition into this track after `previous` sounds like the one into `other` after
-    /// `otherPrevious`, wherever each sits in its set: the same end of the same outgoing track, the
-    /// same start of this one, mixed the same way.
-    public func mixesIn(after previous: PlacedEntry, like other: PlacedEntry, after otherPrevious: PlacedEntry) -> Bool {
-        previous.id == otherPrevious.id && previous.file == otherPrevious.file && previous.grid == otherPrevious.grid
-            && previous.cueOutBar == otherPrevious.cueOutBar
-            && file == other.file && grid == other.grid && cueInBar == other.cueInBar && overlapBars == other.overlapBars
-            && bassSwapBar == other.bassSwapBar && fadeInBars == other.fadeInBars && fadeOutBars == other.fadeOutBars
-    }
-
     /// Track bars where `SetEntry.split(atBar:)` leaves the set sounding the same: the first part
     /// keeps the transition in, the second the transition into `next`, and each a bar of its own.
     /// Nil when the entry is too short.

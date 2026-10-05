@@ -45,8 +45,6 @@ final class SetDocument {
     @ObservationIgnored private var queue: Task<Void, Never>?
     @ObservationIgnored private var player: SetPlayer?
     @ObservationIgnored private var monitor: SetPlayer?
-    /// The layout the players were last given.
-    @ObservationIgnored private var loadedLayout: SetLayout?
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
@@ -280,7 +278,7 @@ final class SetDocument {
         let before = Arrangement(tracks: tracks, tempo: tempo)
         change(self)
         registerUndo(restoring: before, name: name, undoManager)
-        syncPlayer(recueingMonitor: true)
+        syncPlayer()
     }
 
     private func registerUndo(restoring arrangement: Arrangement, name: String, _ undoManager: UndoManager?) {
@@ -306,7 +304,7 @@ final class SetDocument {
         }
         let stale = tracks.filter { $0.isPending && live[$0.id] == nil }.map(\.id)
         if !stale.isEmpty { process(stale) }
-        syncPlayer(recueingMonitor: true)
+        syncPlayer()
     }
 
     // MARK: - Playback
@@ -458,34 +456,10 @@ final class SetDocument {
         }
     }
 
-    /// Gives the players the current layout. After an edit, a monitor previewing a transition the
-    /// edit changed plays it again from its lead-in, at its next bar line.
-    private func syncPlayer(recueingMonitor: Bool = false) {
+    private func syncPlayer() {
         let layout = layout
-        let previous = loadedLayout
-        loadedLayout = layout
-        let recue = recueingMonitor ? previous.flatMap { editedPreview(from: $0, to: layout) } : nil
         player?.load(layout)
         monitor?.load(layout)
-        if let recue, let monitor {
-            play { try monitor.move(to: layout.time(ofBar: clampedBar(Double(recue.startBar - Self.config.playback.monitorLeadInBars)))) }
-        }
-    }
-
-    /// The transition the playing monitor previews in `old` (it is in it, or in the lead-in before it),
-    /// as placed in `new`, when the edit changed it.
-    private func editedPreview(from old: SetLayout, to new: SetLayout) -> PlacedEntry? {
-        guard monitorMode, let monitor, monitor.isPlaying else { return nil }
-        let bar = Int(old.bar(atTime: monitor.pendingMove ?? monitor.currentTime).rounded(.down))
-        let lead = Self.config.playback.monitorLeadInBars
-        guard let index = old.entries.indices.dropFirst().first(where: { index in
-            let entry = old.entries[index]
-            return entry.startBar - lead <= bar && bar < entry.startBar + entry.overlapBars
-        }) else { return nil }
-        let incoming = old.entries[index]
-        guard let edited = new.entries.firstIndex(where: { $0.id == incoming.id }), edited > 0 else { return nil }
-        let unchanged = new.entries[edited].mixesIn(after: new.entries[edited - 1], like: incoming, after: old.entries[index - 1])
-        return unchanged ? nil : new.entries[edited]
     }
 
     // MARK: - Export

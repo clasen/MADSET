@@ -106,31 +106,6 @@ import Testing
         #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: mixing) == nil)
     }
 
-    @Test func aTransitionSoundsTheSameWhereverItSits() {
-        let a = UUID(), b = UUID(), c = UUID()
-        let tracks: [UUID: SetLayout.TrackInfo] = [
-            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
-            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
-            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
-        ]
-        var entries = [entry(a), entry(b), entry(c)]
-        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
-        func mixesLikeBefore(_ entries: [SetEntry]) -> Bool {
-            let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
-            let (previous, last) = (after.entries[after.entries.count - 2], after.entries[after.entries.count - 1])
-            return last.mixesIn(after: previous, like: before.entries[2], after: before.entries[1])
-        }
-        #expect(mixesLikeBefore(Array(entries.dropFirst())))
-
-        entries[2].bassSwapBar = before.entries[2].bassSwapBar + 1
-        #expect(!mixesLikeBefore(entries))
-
-        entries[2].bassSwapBar = nil
-        entries[1].cueOutBar = before.entries[1].cueOutBar - 8
-        entries[2].overlapBars = before.entries[2].overlapBars
-        #expect(!mixesLikeBefore(entries))
-    }
-
     @Test func keepsTheMixInPointInsideTheOutgoingTrack() {
         let a = UUID(), b = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
