@@ -18,6 +18,11 @@ struct MADSETApp: App {
         }
         .defaultSize(width: 1500, height: 880)
         .commands { SetCommands(library: library) }
+
+        Settings {
+            SettingsView()
+                .preferredColorScheme(.dark)
+        }
     }
 }
 

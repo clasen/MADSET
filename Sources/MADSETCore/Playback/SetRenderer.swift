@@ -39,6 +39,7 @@ public final class SetRenderer {
     deinit { scratch.forEach { $0.deallocate() } }
 
     public var framesPerBar: Double { layout.barDuration * sampleRate }
+    public var framesPerBeat: Double { framesPerBar / 4 }
 
     public func seek(toFrame frame: Int) {
         position = max(0, frame)

@@ -152,3 +152,21 @@
 "The set could not be saved" = "No se pudo guardar el set";
 "Load" = "Cargar";
 "Load into the timeline and decks" = "Cargar en el timeline y los decks";
+
+/* Settings */
+"Devices" = "Dispositivos";
+"Audio" = "Audio";
+"Main Output" = "Salida principal";
+"Monitor Output" = "Salida de monitoreo";
+"System Default" = "La del sistema";
+"None" = "Ninguna";
+"Disconnected Device" = "Dispositivo desconectado";
+"Nothing is cued to the monitor output yet." = "Por ahora no se pre-escucha nada en la salida de monitoreo.";
+"Sync" = "Sincronización";
+"MIDI Clock Out" = "Salida de MIDI clock";
+"Offset" = "Desfase";
+"%lld ms" = "%lld ms";
+"Sends MIDI clock, start, stop and song position locked to the set's beats and bars, so a groovebox on that port plays in time with the kick. Raise the offset if the groovebox sounds early, lower it if it sounds late." = "Manda MIDI clock, start, stop y song position enganchados a los beats y compases del set, así una groovebox en ese puerto toca a tiempo con el kick. Subí el desfase si la groovebox suena adelantada, bajalo si suena atrasada.";
+"Device Problem" = "Problema con un dispositivo";
+"MIDI is not available: %@" = "MIDI no está disponible: %@";
+"Could not switch the output: %@" = "No se pudo cambiar la salida: %@";

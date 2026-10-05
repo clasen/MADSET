@@ -308,6 +308,7 @@ final class SetDocument {
             player.pause()
         } else {
             if player.currentTime >= layout.duration { player.seek(to: 0) }
+            DeviceSettings.shared.follow(player)
             do {
                 try player.play()
             } catch {
@@ -342,6 +343,7 @@ final class SetDocument {
         if let player { return player }
         do {
             let player = try SetPlayer(config: Self.config.playback, sources: Self.sources)
+            DeviceSettings.shared.register(player)
             player.load(layout)
             self.player = player
             return player

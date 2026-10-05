@@ -9,35 +9,41 @@ public final class SetPlayer: @unchecked Sendable {
     private let config: AppConfig.Playback
     private let engine: AVAudioEngine
     private let shared: SharedState
+    /// Where the set's beats are heard while it plays.
+    public let clock: PlayheadClock
     private var configurationObserver: NSObjectProtocol?
 
     /// `engine` is injectable so tests can render without a sound device (manual rendering mode).
     public init(config: AppConfig.Playback, sources: SourceCache, engine: AVAudioEngine = AVAudioEngine()) throws {
         self.config = config
         self.engine = engine
-        shared = SharedState(capacity: Int(config.bufferSeconds * config.sampleRate) + config.blockFrames)
+        clock = PlayheadClock(sampleRate: config.sampleRate)
+        shared = SharedState(capacity: Int(config.bufferSeconds * config.sampleRate) + config.blockFrames, clock: clock)
 
         guard let format = AVAudioFormat(standardFormatWithSampleRate: config.sampleRate, channels: 2) else {
             preconditionFailure("Unsupported playback format")
         }
         let shared = shared
-        let source = AVAudioSourceNode(format: format) { _, _, frameCount, bufferList in
+        let source = AVAudioSourceNode(format: format) { _, timestamp, frameCount, bufferList in
             let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
             let left = buffers[0].mData!.assumingMemoryBound(to: Float.self)
             let right = buffers[1].mData!.assumingMemoryBound(to: Float.self)
-            shared.consume(left: left, right: right, frames: Int(frameCount))
+            shared.consume(left: left, right: right, frames: Int(frameCount), at: timestamp.pointee)
             return noErr
         }
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: format)
         try engine.start()
+        clock.setOutputLatency(engine.outputNode.presentationLatency)
 
         // Switching the output device stops the engine; restart it on the new device.
+        let clock = clock
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { _ in
             engine.connect(engine.mainMixerNode, to: engine.outputNode, format: engine.outputNode.outputFormat(forBus: 0))
             try? engine.start()
+            clock.setOutputLatency(engine.outputNode.presentationLatency)
         }
 
         // The thread holds only what it needs, so releasing the player stops it.
@@ -65,6 +71,17 @@ public final class SetPlayer: @unchecked Sendable {
     }
     public func pause() { shared.playing.store(false, ordering: .releasing) }
 
+    /// Plays through `device` from now on; what is buffered keeps its place.
+    public func setOutputDevice(_ device: AudioDeviceID) throws {
+        let output = engine.outputNode
+        guard output.auAudioUnit.deviceID != device else { return }
+        engine.stop()
+        try output.auAudioUnit.setDeviceID(device)
+        engine.connect(engine.mainMixerNode, to: output, format: output.outputFormat(forBus: 0))
+        try engine.start()
+        clock.setOutputLatency(output.presentationLatency)
+    }
+
     public func load(_ layout: SetLayout) { shared.commands.withLock { $0.append(.layout(layout)) } }
     public func seek(to time: TimeInterval) { shared.commands.withLock { $0.append(.seek(max(0, time))) } }
 }
@@ -89,7 +106,9 @@ private struct Producer {
                 switch command {
                 case .layout(let layout):
                     guard let current = renderer else {
-                        renderer = SetRenderer(layout: layout, sources: sources, config: config)
+                        let created = SetRenderer(layout: layout, sources: sources, config: config)
+                        shared.clock.setFramesPerBeat(created.framesPerBeat)
+                        renderer = created
                         continue
                     }
                     if current.layout.bpm != layout.bpm {
@@ -120,6 +139,7 @@ private struct Producer {
             Thread.sleep(forTimeInterval: 0.001)
         }
         shared.reset(baseFrame: frame)
+        shared.clock.setFramesPerBeat(renderer.framesPerBeat)
         renderer.seek(toFrame: frame)
         shared.flushAcknowledged.store(false, ordering: .releasing)
         shared.flushing.store(false, ordering: .releasing)
@@ -134,6 +154,7 @@ private final class SharedState: @unchecked Sendable {
         case seek(TimeInterval)
     }
 
+    let clock: PlayheadClock
     let commands = Mutex<[Command]>([])
     let running = Atomic<Bool>(true)
     let playing = Atomic<Bool>(false)
@@ -150,8 +171,9 @@ private final class SharedState: @unchecked Sendable {
     private let written = Atomic<Int>(0)
     private let read = Atomic<Int>(0)
 
-    init(capacity: Int) {
+    init(capacity: Int, clock: PlayheadClock) {
         self.capacity = capacity
+        self.clock = clock
         left = .allocate(capacity: capacity)
         right = .allocate(capacity: capacity)
     }
@@ -184,8 +206,10 @@ private final class SharedState: @unchecked Sendable {
         consumed.store(0, ordering: .releasing)
     }
 
-    /// Audio callback side.
-    func consume(left output: UnsafeMutablePointer<Float>, right outputRight: UnsafeMutablePointer<Float>, frames: Int) {
+    /// Audio callback side. While flushing, the clock keeps its last position: a tempo change flushes
+    /// without moving the playhead in bars.
+    func consume(left output: UnsafeMutablePointer<Float>, right outputRight: UnsafeMutablePointer<Float>, frames: Int,
+                 at timestamp: AudioTimeStamp) {
         if flushing.load(ordering: .acquiring) {
             flushAcknowledged.store(true, ordering: .releasing)
             output.update(repeating: 0, count: frames)
@@ -194,6 +218,7 @@ private final class SharedState: @unchecked Sendable {
         }
         var copied = 0
         if playing.load(ordering: .acquiring) {
+            clock.publish(frame: playheadFrame, at: timestamp)
             let start = read.load(ordering: .relaxed)
             copied = min(frames, written.load(ordering: .acquiring) - start)
             for i in 0..<copied {
@@ -203,6 +228,8 @@ private final class SharedState: @unchecked Sendable {
             }
             read.store(start + copied, ordering: .releasing)
             consumed.add(copied, ordering: .releasing)
+        } else {
+            clock.stop()
         }
         if copied < frames {
             (output + copied).update(repeating: 0, count: frames - copied)

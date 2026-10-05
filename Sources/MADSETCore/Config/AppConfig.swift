@@ -31,6 +31,15 @@ public struct AppConfig: Sendable {
         public var emptySetBPM: Double
     }
 
+    public struct Sync: Sendable {
+        /// Seconds ahead MIDI clock is scheduled: longer rides out a busy system, shorter follows a seek sooner.
+        public var clockLookahead: Double
+        /// Seconds between the MIDI clock thread's looks at the playhead.
+        public var clockPollInterval: Double
+        /// Largest delay or advance, in seconds, the MIDI clock offset setting allows.
+        public var maxOffset: Double
+    }
+
     public struct Export: Sendable {
         /// Sample depth of exported WAV files.
         public var wavBitDepth: Int
@@ -59,6 +68,7 @@ public struct AppConfig: Sendable {
 
     public var analysis: Analysis
     public var playback: Playback
+    public var sync: Sync
     public var export: Export
     public var cache: Cache
     public var library: Library
@@ -81,6 +91,7 @@ public struct AppConfig: Sendable {
             cachedSources: 6,
             emptySetBPM: 124
         ),
+        sync: Sync(clockLookahead: 0.03, clockPollInterval: 0.005, maxOffset: 0.15),
         export: Export(wavBitDepth: 24, aacBitRate: 256_000),
         cache: Cache(folderName: "MADSET/analysis"),
         library: Library(folderName: "MADSET", watchLatency: 0.3, saveDelay: 1),
