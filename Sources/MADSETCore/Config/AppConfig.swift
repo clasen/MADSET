@@ -44,6 +44,8 @@ public struct AppConfig: Sendable {
     }
 
     public struct Library: Sendable {
+        /// Folder inside ~/Music holding the sets; its folders are the groups.
+        public var folderName: String
         /// Seconds file changes in the sets folder are gathered before the sidebar reloads.
         public var watchLatency: Double
     }
@@ -73,6 +75,6 @@ public struct AppConfig: Sendable {
         ),
         export: Export(wavBitDepth: 24, aacBitRate: 256_000),
         cache: Cache(folderName: "MADSET/analysis"),
-        library: Library(watchLatency: 0.3)
+        library: Library(folderName: "MADSET", watchLatency: 0.3)
     )
 }

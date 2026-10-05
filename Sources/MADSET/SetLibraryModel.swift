@@ -4,43 +4,35 @@ import MADSETCore
 import Observation
 import UniformTypeIdentifiers
 
-/// The sets folder the user chose and what is in it, shared by every window and kept current
-/// while files change on disk.
+/// The sets folder and what is in it, shared by every window and kept current while files change on disk.
 @MainActor
 @Observable
 final class SetLibraryModel {
     static let shared = SetLibraryModel()
 
-    private(set) var folder: URL?
+    let folder: URL
     private(set) var items: [SetLibrary.Item] = []
     /// The last operation that failed, until it is shown.
     var error: String?
 
     @ObservationIgnored private var watcher: FolderWatcher?
-    private static let folderKey = "setsFolder"
     private static let config = AppConfig.current.library
+    /// Stands for the set in the frontmost window while it isn't in the library, so it can be dragged in.
+    static let currentSet = URL(string: "madset:current-set")!
 
     private init() {
-        folder = UserDefaults.standard.url(forKey: Self.folderKey)
-        watch()
-    }
-
-    func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.directoryURL = folder
-        panel.prompt = String(localized: "Use Folder")
-        panel.message = String(localized: "Choose the folder that holds your sets. Its folders become groups.")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        UserDefaults.standard.set(url, forKey: Self.folderKey)
-        folder = url
-        watch()
+        do {
+            let music = try FileManager.default.url(for: .musicDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            folder = music.appending(component: Self.config.folderName, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            fatalError("Could not open the sets folder: \(error)")
+        }
+        watcher = FolderWatcher(folder: folder, latency: Self.config.watchLatency) { [weak self] in self?.reload() }
+        reload()
     }
 
     func reload() {
-        guard let folder else { return items = [] }
         do {
             items = try SetLibrary.items(in: folder)
         } catch {
@@ -56,12 +48,14 @@ final class SetLibraryModel {
         }
     }
 
-    /// Moves the sets and groups among `urls` that are in the library into `group`.
+    /// Moves the sets and groups among `urls` that are in the library into `group`, and saves the
+    /// frontmost window's set there if it is among them.
     @discardableResult
-    func move(_ urls: [URL], into group: URL) -> Bool {
+    func drop(_ urls: [URL], into group: URL) -> Bool {
         let inLibrary = urls.filter(contains)
         perform { for url in inLibrary { _ = try SetLibrary.move(url, into: group) } }
-        return !inLibrary.isEmpty
+        if urls.contains(Self.currentSet) { saveCurrentSet(in: group) }
+        return !inLibrary.isEmpty || urls.contains(Self.currentSet)
     }
 
     /// Makes a group in `group` (or the library) and returns it so it can be named.
@@ -96,7 +90,13 @@ final class SetLibraryModel {
         }
     }
 
-    /// Moves sets and groups to the Trash, where they can be put back from.
+    /// Dissolves groups, deepest first, keeping every set in them.
+    func ungroup(_ urls: [URL]) {
+        let groups = urls.filter(contains).sorted { $0.pathComponents.count > $1.pathComponents.count }
+        perform { for group in groups { try SetLibrary.ungroup(group) } }
+    }
+
+    /// Moves sets to the Trash, where they can be put back from.
     func trash(_ urls: [URL]) {
         perform { for url in urls.filter(contains) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } }
     }
@@ -107,7 +107,6 @@ final class SetLibraryModel {
 
     /// Whether `url` is a set or group inside the library.
     func contains(_ url: URL) -> Bool {
-        guard let folder else { return false }
         let root = folder.standardizedFileURL.pathComponents
         let path = url.standardizedFileURL.pathComponents
         return path.count > root.count && path.starts(with: root)
@@ -123,11 +122,6 @@ final class SetLibraryModel {
         } catch {
             self.error = error.localizedDescription
         }
-        reload()
-    }
-
-    private func watch() {
-        watcher = folder.map { FolderWatcher(folder: $0, latency: Self.config.watchLatency) { [weak self] in self?.reload() } }
         reload()
     }
 }

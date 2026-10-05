@@ -71,6 +71,16 @@ import Testing
         #expect(throws: SetLibrary.Failure.groupIntoItself) { try SetLibrary.move(club, into: club) }
     }
 
+    @Test func ungroupingKeepsEverySet() throws {
+        try makeSet("Peak.madset")
+        try makeSet("Club/Peak.madset")
+        try makeSet("Club/Warmup/Early.madset")
+        try SetLibrary.ungroup(root.appending(path: "Club"))
+        let items = try SetLibrary.items(in: root)
+        #expect(names(items) == ["Warmup", "Peak", "Peak 2"])
+        #expect(names(items[0].children ?? []) == ["Early"])
+    }
+
     @Test func renamingASetKeepsItsExtension() throws {
         try makeSet("Club/Peak.madset")
         let renamed = try SetLibrary.rename(root.appending(path: "Club/Peak.madset"), to: " Peak 3h ")

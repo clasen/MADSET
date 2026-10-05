@@ -77,6 +77,16 @@ public enum SetLibrary {
         return destination
     }
 
+    /// Dissolves a group: what is in it moves up next to it, numbered if its name is taken there,
+    /// and the emptied folder goes to the Trash. No set is deleted.
+    public static func ungroup(_ group: URL) throws {
+        let parent = group.deletingLastPathComponent()
+        for item in try FileManager.default.contentsOfDirectory(at: group, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            _ = try move(item, into: parent)
+        }
+        try FileManager.default.trashItem(at: group, resultingItemURL: nil)
+    }
+
     /// Renames a set or group in place; a set keeps its extension. Fails if the name is taken.
     public static func rename(_ item: URL, to name: String) throws -> URL {
         let name = try validated(name)
