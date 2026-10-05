@@ -1,18 +1,20 @@
 import Foundation
 import MADSETCore
 
-// Usage: madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose]
+// Usage: madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose] [--order]
 // Analyzes the folder like the app does and compares results with the Mixed In Key tags.
+// --order also prints the tracks ordered along the set curve.
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard let folder = arguments.first else {
-    print("usage: madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose]")
+    print("usage: madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose] [--order]")
     exit(2)
 }
 let limit = arguments.firstIndex(of: "--limit").flatMap { Int(arguments[$0 + 1]) }
 let useCache = !arguments.contains("--no-cache")
 let forceKeyDetection = arguments.contains("--detect-key")
 let verbose = arguments.contains("--verbose")
+let printsOrder = arguments.contains("--order")
 
 let config = AppConfig.current
 var files = AudioFileScanner.audioFiles(in: [URL(filePath: folder)])
@@ -103,3 +105,21 @@ if !mismatches.isEmpty {
     for (row, _) in mismatches.prefix(30) { report(row) }
 }
 for row in rows { if case .failure = row.result { report(row) } }
+
+if printsOrder {
+    let items = successes.map { row, a in SetOrder.Item(key: row.tags?.key ?? a.detectedKey, energy: row.tags?.energy, bpm: a.grid.bpm) }
+    let t0 = ContinuousClock.now
+    let order = SetOrder.order(items, by: .setCurve, after: nil, peakPosition: config.ordering.peakPosition)
+    let seconds = (ContinuousClock.now - t0) / .seconds(1)
+    print("\nset curve:")
+    var steps: [Int: Int] = [:]
+    for (position, index) in order.enumerated() {
+        let item = items[index]
+        var step: Int?
+        if position > 0, let from = items[order[position - 1]].key, let to = item.key { step = SetOrder.keyDistance(from, to) }
+        if let step { steps[step, default: 0] += 1 }
+        print(String(format: "%3d  E%@ %@ %6.2f  %@  %@", position + 1, item.energy.map(String.init) ?? "-", (item.key?.description ?? "-").padding(toLength: 3, withPad: " ", startingAt: 0),
+                     item.bpm ?? 0, step.map { "+\($0)" } ?? "  ", String(successes[index].0.url.deletingPathExtension().lastPathComponent.prefix(50))))
+    }
+    print(String(format: "ordered %d in %.2fs  key steps: ", order.count, seconds) + steps.keys.sorted().map { "\($0): \(steps[$0]!)" }.joined(separator: "  "))
+}

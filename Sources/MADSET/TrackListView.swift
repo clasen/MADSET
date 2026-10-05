@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 /// A set in order, one row per track, under a library-style header whose first button folds out
 /// the sets sidebar and, when the set isn't the loaded one, whose last loads it. Rows also drag
 /// out as their files, to add them to another set. Selected rows drag together
-/// to reorder; their context menu moves them to either end or removes them, as does ⌘⌫ (see `ContentView`).
+/// to reorder; their context menu moves them to either end, orders them (the whole set for a single
+/// row) or removes them, as does ⌘⌫ (see `ContentView`).
 struct TrackListView: View {
     @Bindable var document: SetDocument
     let layout: SetLayout
@@ -59,6 +60,11 @@ struct TrackListView: View {
                 if !ids.isEmpty {
                     Button("Move to Start") { document.moveToStart(ids) }
                     Button("Move to End") { document.move(ids, before: nil) }
+                    Menu(ids.count < 2 ? String(localized: "Order Set") : String(localized: "Order \(ids.count) Tracks")) {
+                        ForEach(SetOrder.Criterion.allCases, id: \.self) { criterion in
+                            Button(criterion.title) { document.order(ids, by: criterion) }
+                        }
+                    }
                     Divider()
                     Button(ids.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove \(ids.count) Tracks")) { document.remove(ids) }
                         .keyboardShortcut(.delete, modifiers: .command)

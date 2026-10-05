@@ -140,7 +140,7 @@ final class SetDocument {
     // MARK: - Editing
 
     /// Adds the audio files among `urls` (folders are expanded) at `index`, or at the end of the set,
-    /// and analyzes them. When some repeat a song already in the set, `pendingImport` asks what to do.
+    /// selects and analyzes them. When some repeat a song already in the set, `pendingImport` asks what to do.
     func importItems(_ urls: [URL], at index: Int? = nil) {
         Task {
             let files = await Self.audioFiles(in: urls)
@@ -169,6 +169,7 @@ final class SetDocument {
         perform(String(localized: "Import")) { document in
             document.tracks.insert(contentsOf: added, at: min(index ?? document.tracks.count, document.tracks.count))
         }
+        selection = Set(added.map(\.id))
         process(added.map(\.id))
     }
 
@@ -190,6 +191,31 @@ final class SetDocument {
     /// Moves `ids` to the start of the set, keeping their order.
     func moveToStart(_ ids: Set<Track.ID>) {
         move(ids, before: tracks.first { !ids.contains($0.id) }?.id)
+    }
+
+    /// Orders `ids` by `criterion`, or the whole set when fewer than two are given. The ordered tracks
+    /// end up together where the first of them was; parts of a split track that follow each other
+    /// move as one. A track that follows a different one than before gets its transition in back to
+    /// automatic; its cues stay.
+    func order(_ ids: Set<Track.ID>, by criterion: SetOrder.Criterion) {
+        let ordering = ids.count < 2 ? Set(tracks.map(\.id)) : ids
+        guard let start = tracks.firstIndex(where: { ordering.contains($0.id) }) else { return }
+        let units = tracks.filter { ordering.contains($0.id) }.reduce(into: [[Track]]()) { units, track in
+            if units.last?.last?.url == track.url { units[units.count - 1].append(track) } else { units.append([track]) }
+        }
+        let permutation = SetOrder.order(
+            units.map(\.[0].orderItem), by: criterion, after: start > 0 ? tracks[start - 1].orderItem : nil,
+            peakPosition: Self.config.ordering.peakPosition
+        )
+        var ordered = tracks.filter { !ordering.contains($0.id) }
+        ordered.insert(contentsOf: permutation.flatMap { units[$0] }, at: start)
+        guard ordered.map(\.id) != tracks.map(\.id) else { return }
+
+        let previousIDs = Dictionary(uniqueKeysWithValues: zip(tracks.dropFirst().map(\.id), tracks.map(\.id)))
+        for index in ordered.indices where previousIDs[ordered[index].id] != (index > 0 ? ordered[index - 1].id : nil) {
+            ordered[index].entry.resetTransitionIn()
+        }
+        perform(criterion.actionName) { $0.tracks = ordered }
     }
 
     /// Splits an analyzed track at one of its own bars into two that play one after the other and
@@ -506,6 +532,27 @@ extension ArrangementEdit {
                 $0.bassSwapBar = resized.bassSwap
             }),
         ])
+    }
+}
+
+extension SetOrder.Criterion {
+    var title: String {
+        switch self {
+        case .setCurve: String(localized: "By Set Curve")
+        case .energy: String(localized: "By Energy, Rising")
+        case .energyDescending: String(localized: "By Energy, Falling")
+        case .key: String(localized: "By Key")
+        case .bpm: String(localized: "By BPM")
+        }
+    }
+
+    var actionName: String {
+        switch self {
+        case .setCurve: String(localized: "Order by Set Curve")
+        case .energy, .energyDescending: String(localized: "Order by Energy")
+        case .key: String(localized: "Order by Key")
+        case .bpm: String(localized: "Order by BPM")
+        }
     }
 }
 

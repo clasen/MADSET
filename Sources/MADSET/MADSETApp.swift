@@ -34,9 +34,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// The Order menu orders the selected tracks, or the whole set when fewer than two are selected.
 private struct SetCommands: Commands {
     let library: SetLibraryModel
     @FocusedValue(\.setDocument) private var document
+    @FocusedValue(\.browsedSet) private var browsed
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -61,6 +63,16 @@ private struct SetCommands: Commands {
             Button("Export Mix as AAC…") { document?.exportMix(as: .aac) }
                 .disabled(document?.canExport != true)
         }
+        CommandMenu("Order") {
+            Button(SetOrder.Criterion.setCurve.title) { order(by: .setCurve) }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(browsed == nil)
+            Divider()
+            ForEach([SetOrder.Criterion.energy, .energyDescending, .key, .bpm], id: \.self) { criterion in
+                Button(criterion.title) { order(by: criterion) }
+                    .disabled(browsed == nil)
+            }
+        }
         CommandMenu("Playback") {
             Button(document?.isPlaying == true ? LocalizedStringKey("Pause") : LocalizedStringKey("Play")) { document?.togglePlayback() }
                 .keyboardShortcut(.space, modifiers: [])
@@ -69,5 +81,11 @@ private struct SetCommands: Commands {
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
                 .disabled(document == nil)
         }
+    }
+
+    private func order(by criterion: SetOrder.Criterion) {
+        guard let document, let browsed else { return }
+        let target = SetDocument.selectionTarget(loaded: document, browsed: browsed)
+        target.order(target.selection, by: criterion)
     }
 }

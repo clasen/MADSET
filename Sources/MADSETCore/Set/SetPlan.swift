@@ -42,6 +42,14 @@ public struct SetEntry: Codable, Sendable, Equatable, Identifiable {
         cueOutBar = bar
         return second
     }
+
+    /// Returns the transition from the previous track to automatic, for when that track changes.
+    public mutating func resetTransitionIn() {
+        overlapBars = nil
+        bassSwapBar = nil
+        fadeInBars = nil
+        fadeOutBars = nil
+    }
 }
 
 /// An entry resolved onto the set's bar axis at the global tempo.

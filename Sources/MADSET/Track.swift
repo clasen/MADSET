@@ -34,4 +34,5 @@ struct Track: Identifiable, Sendable {
 
     var layoutInfo: SetLayout.TrackInfo { .init(analysis: analysis, duration: headerDuration) }
     var song: DuplicateSongs.Song { .init(file: url, tags: tags) }
+    var orderItem: SetOrder.Item { .init(key: key, energy: tags.energy, bpm: bpm ?? tags.bpm) }
 }

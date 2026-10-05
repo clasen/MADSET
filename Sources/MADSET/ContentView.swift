@@ -65,7 +65,7 @@ struct ContentView: View {
         // ⌘ so a stray Delete never drops a track. The list and the timeline share the selection
         // while the list shows the loaded set; otherwise it removes from the one with the focus.
         .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
-            let target = NSApp.keyWindow?.firstResponder is TimelineCanvas ? document : browsed
+            let target = SetDocument.selectionTarget(loaded: document, browsed: browsed)
             target.remove(target.selection)
         })
         .overlay {
@@ -121,6 +121,7 @@ struct ContentView: View {
             Text(failedSave?.saveError ?? "")
         }
         .focusedSceneValue(\.setDocument, document)
+        .focusedSceneValue(\.browsedSet, browsed)
         // The window stays while the sidebar swaps sets: each one gets the undo manager, a loaded one a fitted view.
         .onChange(of: ObjectIdentifier(document), initial: true) {
             document.undoManager = undoManager
@@ -157,6 +158,16 @@ extension ContentView {
 
 extension FocusedValues {
     @Entry var setDocument: SetDocument?
+    /// The set in the track list.
+    @Entry var browsedSet: SetDocument?
+}
+
+extension SetDocument {
+    /// The set an edit of the selection goes to: the loaded one while the timeline has the focus,
+    /// otherwise the one in the list.
+    static func selectionTarget(loaded: SetDocument, browsed: SetDocument) -> SetDocument {
+        NSApp.keyWindow?.firstResponder is TimelineCanvas ? loaded : browsed
+    }
 }
 
 enum ImportPanel {

@@ -70,9 +70,21 @@
 "Move to Start" = "Mover al principio";
 "Move to End" = "Mover al final";
 "Remove %lld Tracks" = "Quitar %lld temas";
+"Order Set" = "Ordenar el set";
+"Order %lld Tracks" = "Ordenar %lld temas";
+"Order" = "Ordenar";
+"By Set Curve" = "Por curva del set";
+"By Energy, Rising" = "Por energía, de menor a mayor";
+"By Energy, Falling" = "Por energía, de mayor a menor";
+"By Key" = "Por key";
+"By BPM" = "Por BPM";
 
 /* Undo action names */
 "Reorder" = "Reordenar";
+"Order by Set Curve" = "Ordenar por curva del set";
+"Order by Energy" = "Ordenar por energía";
+"Order by Key" = "Ordenar por key";
+"Order by BPM" = "Ordenar por BPM";
 "Remove Track" = "Quitar tema";
 "Remove Tracks" = "Quitar temas";
 "Change Tempo" = "Cambiar tempo";

@@ -52,11 +52,17 @@ public struct AppConfig: Sendable {
         public var saveDelay: Double
     }
 
+    public struct Ordering: Sendable {
+        /// Where the set curve peaks, as a fraction of the way through the ordered tracks.
+        public var peakPosition: Double
+    }
+
     public var analysis: Analysis
     public var playback: Playback
     public var export: Export
     public var cache: Cache
     public var library: Library
+    public var ordering: Ordering
 
     public static let current = AppConfig(
         analysis: Analysis(
@@ -77,6 +83,7 @@ public struct AppConfig: Sendable {
         ),
         export: Export(wavBitDepth: 24, aacBitRate: 256_000),
         cache: Cache(folderName: "MADSET/analysis"),
-        library: Library(folderName: "MADSET", watchLatency: 0.3, saveDelay: 1)
+        library: Library(folderName: "MADSET", watchLatency: 0.3, saveDelay: 1),
+        ordering: Ordering(peakPosition: 0.7)
     )
 }
