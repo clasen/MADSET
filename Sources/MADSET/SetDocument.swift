@@ -3,7 +3,6 @@ import Foundation
 import MADSETCore
 import Observation
 import SwiftUI
-import Synchronization
 import UniformTypeIdentifiers
 
 extension UTType {
@@ -11,12 +10,13 @@ extension UTType {
 }
 
 /// A set being built: track order, transitions, tempo, the analysis queue and playback.
-/// Every arrangement edit goes through `perform`, which registers undo (and so marks the document edited).
+/// Every arrangement edit goes through `perform`, which registers undo. The set saves itself to
+/// `fileURL` shortly after every change, and at once on `close()`.
 @MainActor
 @Observable
-final class SetDocument: ReferenceFileDocument {
-    nonisolated static let readableContentTypes: [UTType] = [.madsetSet]
-
+final class SetDocument {
+    /// Where the set is saved; follows the file when it is renamed or moved.
+    var fileURL: URL
     private(set) var tracks: [Track] = [] {
         didSet { storeSaved() }
     }
@@ -35,12 +35,14 @@ final class SetDocument: ReferenceFileDocument {
     private(set) var exportError: String?
     /// An import that repeats songs already in the set, waiting for the user to skip or keep them.
     private(set) var pendingImport: PendingImport?
+    private(set) var saveError: String?
 
     @ObservationIgnored private var queue: Task<Void, Never>?
     @ObservationIgnored private var player: SetPlayer?
     @ObservationIgnored private var exportTask: Task<Void, Never>?
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
-    /// The window's undo manager; edits register here, which also marks the document as edited.
+    /// The window's undo manager; edits register here.
     @ObservationIgnored weak var undoManager: UndoManager?
 
     /// Analysis and decoded audio are shared by every open set.
@@ -54,44 +56,60 @@ final class SetDocument: ReferenceFileDocument {
     }()
     private static let sources = SourceCache(capacity: config.playback.cachedSources, sampleRate: config.playback.sampleRate)
 
-    /// The file this document was opened from; its arrangement is applied by `start()` on the main actor.
-    private nonisolated let opened: SetFile?
-    /// What saving writes, kept current on the main actor: AppKit autosaves from a background thread.
-    private nonisolated let saved: Mutex<SetFile>
+    /// The file as it was opened, then as last saved.
+    @ObservationIgnored private var saved: SetFile
 
-    nonisolated init() {
-        opened = nil
-        saved = Mutex(SetFile(bpm: nil, entries: []))
+    init(fileURL: URL) throws {
+        self.fileURL = fileURL
+        saved = try SetFile.decode(Data(contentsOf: fileURL))
     }
 
-    nonisolated init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
-        let file = try SetFile.decode(data)
-        opened = file
-        saved = Mutex(file)
-    }
-
-    nonisolated func snapshot(contentType: UTType) throws -> SetFile {
-        saved.withLock { $0 }
-    }
-
-    private func storeSaved() {
-        let file = SetFile(bpm: tempo, entries: tracks.map(\.entry))
-        saved.withLock { $0 = file }
-    }
-
-    nonisolated func fileWrapper(snapshot: SetFile, configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: try snapshot.encoded())
-    }
-
-    /// Loads the opened arrangement and analyzes its tracks. Called once when the window appears.
+    /// Loads the saved arrangement and analyzes its tracks. Called once, when the set is shown.
     func start() {
         guard !started else { return }
         started = true
-        guard let opened else { return }
-        tracks = opened.entries.map(Track.init(entry:))
-        tempo = opened.bpm
+        tracks = saved.entries.map(Track.init(entry:))
+        tempo = saved.bpm
         process(tracks.map(\.id))
+    }
+
+    /// Saves any pending change and stops playback and export, before another set is shown or the app quits.
+    func close() {
+        saveNow()
+        player?.pause()
+        isPlaying = false
+        cancelExport()
+        undoManager?.removeAllActions()
+    }
+
+    func saveNow() {
+        saveTask?.cancel()
+        save(current)
+    }
+
+    func clearSaveError() { saveError = nil }
+
+    private var current: SetFile { SetFile(bpm: tempo, entries: tracks.map(\.entry)) }
+
+    /// Saves after the arrangement has been still for a moment, so a drag writes once.
+    private func storeSaved() {
+        guard started, current != saved else { return }
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .seconds(Self.config.library.saveDelay))
+            guard !Task.isCancelled else { return }
+            save(current)
+        }
+    }
+
+    private func save(_ file: SetFile) {
+        guard file != saved else { return }
+        do {
+            try file.encoded().write(to: fileURL, options: .atomic)
+            saved = file
+        } catch {
+            saveError = error.localizedDescription
+        }
     }
 
     // MARK: - Derived state

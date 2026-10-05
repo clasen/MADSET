@@ -4,7 +4,8 @@ import MADSETCore
 import Observation
 import UniformTypeIdentifiers
 
-/// The sets folder and what is in it, shared by every window and kept current while files change on disk.
+/// The sets folder, what is in it (kept current while files change on disk) and the set the window
+/// shows, which follows its file when it is renamed or moved.
 @MainActor
 @Observable
 final class SetLibraryModel {
@@ -12,12 +13,15 @@ final class SetLibraryModel {
 
     let folder: URL
     private(set) var items: [SetLibrary.Item] = []
+    /// The set on show.
+    private(set) var current: SetDocument?
     /// The last operation that failed, until it is shown.
     var error: String?
 
     @ObservationIgnored private var watcher: FolderWatcher?
     private static let config = AppConfig.current.library
-    /// Stands for the set in the frontmost window while it isn't in the library, so it can be dragged in.
+    private static let lastSetKey = "lastSet"
+    /// Stands for the set on show while it isn't in the library, so it can be dragged in.
     static let currentSet = URL(string: "madset:current-set")!
 
     private init() {
@@ -30,6 +34,8 @@ final class SetLibraryModel {
         }
         watcher = FolderWatcher(folder: folder, latency: Self.config.watchLatency) { [weak self] in self?.reload() }
         reload()
+        let last = UserDefaults.standard.string(forKey: Self.lastSetKey).map { URL(filePath: $0) }
+        if let last, FileManager.default.fileExists(atPath: last.path) { show(last) } else { showAnySet() }
     }
 
     func reload() {
@@ -41,20 +47,42 @@ final class SetLibraryModel {
         }
     }
 
-    /// Opens a set in its window, bringing it forward if it is open already.
-    func open(_ url: URL) {
-        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
-            if let error { Task { @MainActor in self.error = error.localizedDescription } }
+    /// Shows the set at `url` in the window instead of the one on show.
+    func show(_ url: URL) {
+        guard url.standardizedFileURL != current?.fileURL.standardizedFileURL else { return }
+        do {
+            let document = try SetDocument(fileURL: url)
+            current?.close()
+            current = document
+            document.start()
+            remember()
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
-    /// Moves the sets and groups among `urls` that are in the library into `group`, and saves the
-    /// frontmost window's set there if it is among them.
+    /// Asks for a set file anywhere and shows it.
+    func showChosenSet() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.madsetSet]
+        panel.directoryURL = folder
+        if panel.runModal() == .OK, let url = panel.url { show(url) }
+    }
+
+    /// Moves the sets and groups among `urls` that are in the library into `group`; the set on show,
+    /// when it is outside the library, is copied in and shown from there.
     @discardableResult
     func drop(_ urls: [URL], into group: URL) -> Bool {
         let inLibrary = urls.filter(contains)
-        perform { for url in inLibrary { _ = try SetLibrary.move(url, into: group) } }
-        if urls.contains(Self.currentSet) { saveCurrentSet(in: group) }
+        perform {
+            for url in inLibrary { follow(url, to: try SetLibrary.move(url, into: group)) }
+            if urls.contains(Self.currentSet), let current {
+                current.saveNow()
+                let copy = try SetLibrary.newSetURL(named: current.fileURL.deletingPathExtension().lastPathComponent, in: group)
+                try FileManager.default.copyItem(at: current.fileURL, to: copy)
+                follow(current.fileURL, to: copy)
+            }
+        }
         return !inLibrary.isEmpty || urls.contains(Self.currentSet)
     }
 
@@ -65,44 +93,36 @@ final class SetLibraryModel {
         return created.map { SetLibrary.Item(url: $0, children: []) }
     }
 
-    /// Makes an empty set in `group` and opens it.
+    /// Makes an empty set in `group` and shows it.
     func createSet(in group: URL) {
         var created: URL?
         perform {
             let empty = try SetFile(bpm: nil, entries: []).encoded()
             created = try SetLibrary.createSet(named: String(localized: "New Set"), contents: empty, in: group)
         }
-        if let created { open(created) }
-    }
-
-    /// Saves the set in the frontmost window into `group`, under its name, and keeps editing it there.
-    func saveCurrentSet(in group: URL) {
-        guard let document = NSDocumentController.shared.currentDocument else { return }
-        let name = document.fileURL?.deletingPathExtension().lastPathComponent ?? document.displayName!
-        var destination: URL?
-        perform { destination = try SetLibrary.newSetURL(named: name, in: group) }
-        guard let destination else { return }
-        document.save(to: destination, ofType: document.fileType ?? UTType.madsetSet.identifier, for: .saveAsOperation) { error in
-            Task { @MainActor in
-                if let error { self.error = error.localizedDescription }
-                self.reload()
-            }
-        }
+        if let created { show(created) }
     }
 
     /// Dissolves groups, deepest first, keeping every set in them.
     func ungroup(_ urls: [URL]) {
         let groups = urls.filter(contains).sorted { $0.pathComponents.count > $1.pathComponents.count }
-        perform { for group in groups { try SetLibrary.ungroup(group) } }
+        perform {
+            for group in groups {
+                for move in try SetLibrary.ungroup(group) { follow(move.from, to: move.to) }
+            }
+        }
     }
 
-    /// Moves sets to the Trash, where they can be put back from.
+    /// Moves sets to the Trash, where they can be put back from. If the set on show goes, another one is shown.
     func trash(_ urls: [URL]) {
-        perform { for url in urls.filter(contains) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } }
+        let trashed = urls.filter(contains)
+        current?.saveNow()
+        perform { for url in trashed { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } }
+        if let current, !FileManager.default.fileExists(atPath: current.fileURL.path) { showAnySet() }
     }
 
     func rename(_ url: URL, to name: String) {
-        perform { _ = try SetLibrary.rename(url, to: name) }
+        perform { follow(url, to: try SetLibrary.rename(url, to: name)) }
     }
 
     /// Whether `url` is a set or group inside the library.
@@ -123,6 +143,28 @@ final class SetLibraryModel {
             self.error = error.localizedDescription
         }
         reload()
+    }
+
+    /// Points the set on show at its new place when it, or a group it is in, moved from `old` to `new`.
+    private func follow(_ old: URL, to new: URL) {
+        guard let current else { return }
+        let from = old.standardizedFileURL.pathComponents
+        let path = current.fileURL.standardizedFileURL.pathComponents
+        guard path.starts(with: from) else { return }
+        current.fileURL = path.dropFirst(from.count).reduce(new) { $0.appending(component: $1) }
+        remember()
+    }
+
+    private func remember() {
+        UserDefaults.standard.set(current?.fileURL.path, forKey: Self.lastSetKey)
+    }
+
+    /// Shows the first set in the library, or a new one when there is none.
+    private func showAnySet() {
+        func first(_ items: [SetLibrary.Item]) -> URL? {
+            items.lazy.compactMap { $0.isGroup ? first($0.children ?? []) : $0.url }.first
+        }
+        if let url = first(items) { show(url) } else { createSet(in: folder) }
     }
 }
 

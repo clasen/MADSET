@@ -48,6 +48,8 @@ public struct AppConfig: Sendable {
         public var folderName: String
         /// Seconds file changes in the sets folder are gathered before the sidebar reloads.
         public var watchLatency: Double
+        /// Seconds a set waits after a change before saving it, so a burst of edits writes once.
+        public var saveDelay: Double
     }
 
     public var analysis: Analysis
@@ -75,6 +77,6 @@ public struct AppConfig: Sendable {
         ),
         export: Export(wavBitDepth: 24, aacBitRate: 256_000),
         cache: Cache(folderName: "MADSET/analysis"),
-        library: Library(folderName: "MADSET", watchLatency: 0.3)
+        library: Library(folderName: "MADSET", watchLatency: 0.3, saveDelay: 1)
     )
 }

@@ -5,8 +5,6 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var document: SetDocument
-    /// Where the set is saved; nil until it is.
-    let fileURL: URL?
     @Environment(\.undoManager) private var undoManager
     @State private var isDropTargeted = false
     @State private var fitRequest = 0
@@ -46,7 +44,7 @@ struct ContentView: View {
             // The list takes its height first and gives it back only once the timeline is at its minimum.
             HSplitView {
                 if showsSetsSidebar {
-                    SetsSidebar(current: fileURL)
+                    SetsSidebar()
                         .frame(minWidth: 180, idealWidth: 230, maxWidth: 300)
                 }
                 TrackListView(document: document, layout: layout, showsSidebar: $showsSetsSidebar)
@@ -110,10 +108,16 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { document.exportProgress != nil }, set: { _ in })) {
             ExportProgressSheet(progress: document.exportProgress ?? 0) { document.cancelExport() }
         }
+        .alert("The set could not be saved", isPresented: Binding(get: { document.saveError != nil }, set: { if !$0 { document.clearSaveError() } })) {
+            Button("OK") {}
+        } message: {
+            Text(document.saveError ?? "")
+        }
         .focusedSceneValue(\.setDocument, document)
-        .onAppear {
+        // The window stays while the sidebar swaps sets: each new one gets the undo manager and a fitted view.
+        .onChange(of: ObjectIdentifier(document), initial: true) {
             document.undoManager = undoManager
-            document.start()
+            fitRequest += 1
         }
         .onChange(of: undoManager) { document.undoManager = undoManager }
     }

@@ -3,12 +3,10 @@ import MADSETCore
 import SwiftUI
 
 /// The sets in the library folder, grouped by the folders they are in, with this window's set on
-/// top while it isn't among them. Clicking a set opens it. Sets and groups drag onto a group, onto a
+/// top while it isn't among them. Clicking a set shows it in the window. Sets and groups drag onto a group, onto a
 /// set to join its group, or onto the header to leave every group; dragging this window's set in
 /// saves it there. Deleting a group keeps its sets; deleting a set moves it to the Trash.
 struct SetsSidebar: View {
-    /// The set in this window; nil until it is saved.
-    let current: URL?
     @State private var library = SetLibraryModel.shared
     @State private var renaming: SetLibrary.Item?
     @State private var newName = ""
@@ -21,7 +19,7 @@ struct SetsSidebar: View {
             Divider()
             List(selection: openingSelection) {
                 if !isCurrentInLibrary {
-                    Label(current?.deletingPathExtension().lastPathComponent ?? String(localized: "Untitled"), systemImage: "music.note.list")
+                    Label(current?.deletingPathExtension().lastPathComponent ?? "", systemImage: "music.note.list")
                         .italic()
                         .lineLimit(1)
                         .tag(SetLibraryModel.currentSet)
@@ -50,6 +48,7 @@ struct SetsSidebar: View {
         }
     }
 
+    private var current: URL? { library.current?.fileURL }
     private var isCurrentInLibrary: Bool { current.map(library.contains) ?? false }
 
     private var trashTitle: String {
@@ -76,11 +75,11 @@ struct SetsSidebar: View {
         } isTargeted: { isHeaderTargeted = $0 }
     }
 
-    /// Highlights this window's set; picking another set opens it.
+    /// Highlights the set on show; picking another set shows it instead.
     private var openingSelection: Binding<URL?> {
         Binding(get: { isCurrentInLibrary ? current?.standardizedFileURL : SetLibraryModel.currentSet }, set: { url in
             guard let url, url.pathExtension.lowercased() == SetLibrary.fileExtension, url != current?.standardizedFileURL else { return }
-            library.open(url)
+            library.show(url)
         })
     }
 

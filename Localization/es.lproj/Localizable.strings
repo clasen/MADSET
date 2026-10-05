@@ -134,6 +134,8 @@
 "“%@” can't be used as a name." = "“%@” no se puede usar como nombre.";
 "Move to Trash" = "Mover a la papelera";
 "Move the set “%@” to the Trash?" = "¿Mover el set “%@” a la papelera?";
-"Untitled" = "Sin título";
 "Delete" = "Eliminar";
 "Move %lld sets to the Trash?" = "¿Mover %lld sets a la papelera?";
+"Open Set…" = "Abrir set…";
+"Save" = "Guardar";
+"The set could not be saved" = "No se pudo guardar el set";
