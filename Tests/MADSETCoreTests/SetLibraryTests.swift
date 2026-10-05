@@ -97,4 +97,14 @@ import Testing
         #expect(names(try SetLibrary.items(in: root)) == ["Club Nights"])
         #expect(names(try SetLibrary.items(in: group)) == ["Peak 3h"])
     }
+
+    @Test func setNamesCombineAHundredDistinctWordsEach() throws {
+        for words in [SetName.moods, SetName.scenes] {
+            #expect(Set(words).count == 100)
+            #expect(words.allSatisfy { $0.first!.isUppercase && $0.allSatisfy(\.isLetter) })
+        }
+        let name = SetName.random()
+        let set = try SetLibrary.createSet(named: name, contents: Data("{}".utf8), in: root)
+        #expect(set.deletingPathExtension().lastPathComponent == name)
+    }
 }

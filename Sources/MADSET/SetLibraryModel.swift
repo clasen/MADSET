@@ -114,7 +114,7 @@ final class SetLibraryModel {
         var created: URL?
         perform {
             let empty = try SetFile(bpm: nil, entries: []).encoded()
-            created = try SetLibrary.createSet(named: String(localized: "New Set"), contents: empty, in: group)
+            created = try SetLibrary.createSet(named: SetName.random(), contents: empty, in: group)
         }
         if let created { browse(created) }
     }
