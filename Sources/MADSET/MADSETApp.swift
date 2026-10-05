@@ -10,8 +10,8 @@ struct MADSETApp: App {
 
     var body: some Scene {
         Window("MADSET", id: "main") {
-            if let document = library.current {
-                ContentView(document: document)
+            if let document = library.loaded {
+                ContentView(document: document, browsed: library.browsed ?? document) { library.load($0.fileURL) }
                     .navigationTitle(document.fileURL.deletingPathExtension().lastPathComponent)
                     .preferredColorScheme(.dark)
             }
@@ -24,13 +24,13 @@ struct MADSETApp: App {
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Sets opened from the Finder show in the window.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.last { SetLibraryModel.shared.show(url) }
+        if let url = urls.last { SetLibraryModel.shared.load(url) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
-        SetLibraryModel.shared.current?.close()
+        SetLibraryModel.shared.closeAll()
     }
 }
 
@@ -42,7 +42,7 @@ private struct SetCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Set") { library.createSet(in: library.folder) }
                 .keyboardShortcut("n")
-            Button("Open Set…") { library.showChosenSet() }
+            Button("Open Set…") { library.loadChosenSet() }
                 .keyboardShortcut("o")
             Divider()
             Button("Import Tracks…") { document?.importItems(ImportPanel.choose()) }

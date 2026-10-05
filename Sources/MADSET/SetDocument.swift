@@ -73,13 +73,14 @@ final class SetDocument {
         process(tracks.map(\.id))
     }
 
-    /// Saves any pending change and stops playback and export, before another set is shown or the app quits.
+    /// Saves any pending change, stops playback and export and forgets its undo steps, before the set
+    /// leaves the window or the app quits.
     func close() {
         saveNow()
         player?.pause()
         isPlaying = false
         cancelExport()
-        undoManager?.removeAllActions()
+        undoManager?.removeAllActions(withTarget: self)
     }
 
     func saveNow() {

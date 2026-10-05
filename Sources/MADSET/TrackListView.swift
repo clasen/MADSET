@@ -2,13 +2,17 @@ import MADSETCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The set in order, one row per track, under a library-style header whose first button folds out
-/// the sets sidebar. Selected rows drag together
+/// A set in order, one row per track, under a library-style header whose first button folds out
+/// the sets sidebar and, when the set isn't the loaded one, whose last loads it. Rows also drag
+/// out as their files, to add them to another set. Selected rows drag together
 /// to reorder; their context menu moves them to either end or removes them, as does ⌘⌫ (see `ContentView`).
 struct TrackListView: View {
     @Bindable var document: SetDocument
     let layout: SetLayout
+    /// Whether the set is the one in the timeline and decks.
+    let isLoaded: Bool
     @Binding var showsSidebar: Bool
+    let load: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,9 +23,14 @@ struct TrackListView: View {
                     .foregroundStyle(showsSidebar ? Theme.accent : .secondary)
                     .keyboardShortcut("s", modifiers: [.command, .control])
                     .help(showsSidebar ? String(localized: "Hide your sets and groups (⌃⌘S)") : String(localized: "Show your sets and groups (⌃⌘S)"))
-                Text("Set").font(.system(size: 13, weight: .semibold))
+                Text(document.fileURL.deletingPathExtension().lastPathComponent).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text(summary).font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
                 Spacer()
+                if !isLoaded {
+                    Button("Load", systemImage: "square.and.arrow.up.on.square", action: load)
+                        .controlSize(.small)
+                        .help(String(localized: "Load into the timeline and decks"))
+                }
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
@@ -35,6 +44,8 @@ struct TrackListView: View {
                         TrackRow(position: index + 1, track: track, part: split.contains(track.url) ? placed.cueInBar..<placed.cueOutBar : nil,
                                  setBPM: layout.bpm, isPlaying: document.nowPlaying.contains(track.id))
                             .tag(track.id)
+                            // Lets rows drag out, onto a set in the sidebar or the timeline, as their files.
+                            .itemProvider { NSItemProvider(object: track.url as NSURL) }
                     }
                     .onMove { document.move(fromOffsets: $0, toOffset: $1) }
                     .onInsert(of: [.fileURL]) { index, providers in

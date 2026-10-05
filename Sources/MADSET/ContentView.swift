@@ -4,7 +4,11 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    /// The set in the timeline and decks.
     @Bindable var document: SetDocument
+    /// The set in the track list: `document` or another one, which doesn't change what plays.
+    let browsed: SetDocument
+    let load: (SetDocument) -> Void
     @Environment(\.undoManager) private var undoManager
     @State private var isDropTargeted = false
     @State private var fitRequest = 0
@@ -47,7 +51,8 @@ struct ContentView: View {
                     SetsSidebar()
                         .frame(minWidth: 180, idealWidth: 230, maxWidth: 300)
                 }
-                TrackListView(document: document, layout: layout, showsSidebar: $showsSetsSidebar)
+                TrackListView(document: browsed, layout: browsed === document ? layout : browsed.layout, isLoaded: browsed === document,
+                              showsSidebar: $showsSetsSidebar) { load(browsed) }
                     .frame(minWidth: 500)
             }
                 .frame(minHeight: Self.minTrackListHeight, maxHeight: max(trackListHeight, Self.minTrackListHeight))
@@ -57,9 +62,11 @@ struct ContentView: View {
         .background(Theme.window)
         .background(PlaybackTicker(document: document))
         .background(KeyMonitor(keyCode: KeyMonitor.space, modifiers: []) { document.togglePlayback() })
-        // ⌘ so a stray Delete never drops a track; the selection is shared by the list and the timeline.
+        // ⌘ so a stray Delete never drops a track. The list and the timeline share the selection
+        // while the list shows the loaded set; otherwise it removes from the one with the focus.
         .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
-            document.remove(document.selection)
+            let target = NSApp.keyWindow?.firstResponder is TimelineCanvas ? document : browsed
+            target.remove(target.selection)
         })
         .overlay {
             if isDropTargeted {
@@ -97,40 +104,49 @@ struct ContentView: View {
         } message: {
             Text(document.exportError ?? "")
         }
-        .alert(duplicatesTitle, isPresented: Binding(get: { document.pendingImport != nil }, set: { if !$0 { document.cancelImport() } })) {
-            Button("Skip Duplicates") { document.resolveImport(skippingDuplicates: true) }
+        .alert(duplicatesTitle, isPresented: Binding(get: { importing != nil }, set: { if !$0 { importing?.cancelImport() } })) {
+            Button("Skip Duplicates") { importing?.resolveImport(skippingDuplicates: true) }
                 .keyboardShortcut(.defaultAction)
-            Button("Add All") { document.resolveImport(skippingDuplicates: false) }
-            Button("Cancel", role: .cancel) { document.cancelImport() }
+            Button("Add All") { importing?.resolveImport(skippingDuplicates: false) }
+            Button("Cancel", role: .cancel) { importing?.cancelImport() }
         } message: {
             Text(duplicatesMessage)
         }
         .sheet(isPresented: Binding(get: { document.exportProgress != nil }, set: { _ in })) {
             ExportProgressSheet(progress: document.exportProgress ?? 0) { document.cancelExport() }
         }
-        .alert("The set could not be saved", isPresented: Binding(get: { document.saveError != nil }, set: { if !$0 { document.clearSaveError() } })) {
+        .alert("The set could not be saved", isPresented: Binding(get: { failedSave != nil }, set: { if !$0 { failedSave?.clearSaveError() } })) {
             Button("OK") {}
         } message: {
-            Text(document.saveError ?? "")
+            Text(failedSave?.saveError ?? "")
         }
         .focusedSceneValue(\.setDocument, document)
-        // The window stays while the sidebar swaps sets: each new one gets the undo manager and a fitted view.
+        // The window stays while the sidebar swaps sets: each one gets the undo manager, a loaded one a fitted view.
         .onChange(of: ObjectIdentifier(document), initial: true) {
             document.undoManager = undoManager
             fitRequest += 1
         }
-        .onChange(of: undoManager) { document.undoManager = undoManager }
+        .onChange(of: ObjectIdentifier(browsed), initial: true) { browsed.undoManager = undoManager }
+        .onChange(of: undoManager) {
+            document.undoManager = undoManager
+            browsed.undoManager = undoManager
+        }
     }
 }
 
 extension ContentView {
+    /// The open set whose import waits on the user.
+    private var importing: SetDocument? { [document, browsed].first { $0.pendingImport != nil } }
+
+    private var failedSave: SetDocument? { [document, browsed].first { $0.saveError != nil } }
+
     private var duplicatesTitle: String {
-        let count = document.pendingImport?.duplicates.count ?? 0
+        let count = importing?.pendingImport?.duplicates.count ?? 0
         return count == 1 ? String(localized: "1 track is already in the set") : String(localized: "\(count) tracks are already in the set")
     }
 
     private var duplicatesMessage: String {
-        guard let pending = document.pendingImport else { return "" }
+        guard let pending = importing?.pendingImport else { return "" }
         let titles = pending.tracks.filter { pending.duplicates.contains($0.id) }.map(\.title)
         let shown = titles.prefix(Self.listedDuplicates).joined(separator: "\n")
         return titles.count > Self.listedDuplicates ? shown + "\n" + String(localized: "and \(titles.count - Self.listedDuplicates) more") : shown

@@ -2,10 +2,11 @@ import AppKit
 import MADSETCore
 import SwiftUI
 
-/// The sets in the library folder, grouped by the folders they are in, with this window's set on
-/// top while it isn't among them. Clicking a set shows it in the window. Sets and groups drag onto a group, onto a
-/// set to join its group, or onto the header to leave every group; dragging this window's set in
-/// saves it there. Deleting a group keeps its sets; deleting a set moves it to the Trash.
+/// The sets in the library folder as playlists, grouped by the folders they are in, with the loaded
+/// set on top while it isn't among them. Clicking a set shows it in the track list; double-clicking
+/// loads it into the timeline and decks, and a speaker marks the loaded one. Sets and groups drag
+/// onto a group, onto a set to join its group, or onto the header to leave every group; tracks drag
+/// onto a set to add them to it. Deleting a group keeps its sets; deleting a set moves it to the Trash.
 struct SetsSidebar: View {
     @State private var library = SetLibraryModel.shared
     @State private var renaming: SetLibrary.Item?
@@ -17,19 +18,7 @@ struct SetsSidebar: View {
         VStack(spacing: 0) {
             header
             Divider()
-            List(selection: openingSelection) {
-                if !isCurrentInLibrary {
-                    Label(current?.deletingPathExtension().lastPathComponent ?? "", systemImage: "music.note.list")
-                        .italic()
-                        .lineLimit(1)
-                        .tag(SetLibraryModel.currentSet)
-                        .draggable(SetLibraryModel.currentSet)
-                }
-                ForEach(library.items) { SetLibraryRow(item: $0, library: library) }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .contextMenu(forSelectionType: URL.self) { urls in menu(for: urls) }
+            list
         }
         .background(Theme.panel)
         .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -48,12 +37,23 @@ struct SetsSidebar: View {
         }
     }
 
-    private var current: URL? { library.current?.fileURL }
-    private var isCurrentInLibrary: Bool { current.map(library.contains) ?? false }
-
-    private var trashTitle: String {
-        trashing.count == 1 ? String(localized: "Move the set “\(trashing[0].name)” to the Trash?")
-            : String(localized: "Move \(trashing.count) sets to the Trash?")
+    private var list: some View {
+        List(selection: browsingSelection) {
+            if let loaded = library.loaded, !library.contains(loaded.fileURL) {
+                SetLabel(name: loaded.fileURL.deletingPathExtension().lastPathComponent, isGroup: false, isLoaded: true)
+                    .italic()
+                    .tag(SetLibraryModel.loadedSet)
+                    .draggable(SetLibraryModel.loadedSet)
+            }
+            ForEach(library.items) { SetLibraryRow(item: $0, library: library) }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .contextMenu(forSelectionType: URL.self) { urls in
+            menu(for: urls)
+        } primaryAction: { urls in
+            if let url = urls.first, urls.count == 1 { load(url) }
+        }
     }
 
     private var header: some View {
@@ -71,16 +71,33 @@ struct SetsSidebar: View {
         .frame(height: 30)
         .background(isHeaderTargeted ? Theme.controlHover : Theme.panel)
         .dropDestination(for: URL.self) { urls, _ in
-            library.drop(urls, into: library.folder)
+            library.drop(urls, onto: nil)
         } isTargeted: { isHeaderTargeted = $0 }
     }
 
-    /// Highlights the set on show; picking another set shows it instead.
-    private var openingSelection: Binding<URL?> {
-        Binding(get: { isCurrentInLibrary ? current?.standardizedFileURL : SetLibraryModel.currentSet }, set: { url in
-            guard let url, url.pathExtension.lowercased() == SetLibrary.fileExtension, url != current?.standardizedFileURL else { return }
-            library.show(url)
+    private var trashTitle: String {
+        trashing.count == 1 ? String(localized: "Move the set “\(trashing[0].name)” to the Trash?")
+            : String(localized: "Move \(trashing.count) sets to the Trash?")
+    }
+
+    /// Highlights the browsed set; picking another set browses it.
+    private var browsingSelection: Binding<URL?> {
+        Binding(get: {
+            guard let browsed = library.browsed else { return nil }
+            return library.contains(browsed.fileURL) ? browsed.fileURL.standardizedFileURL : SetLibraryModel.loadedSet
+        }, set: { url in
+            guard let url else { return }
+            if url == SetLibraryModel.loadedSet, let loaded = library.loaded {
+                library.browse(loaded.fileURL)
+            } else if url.pathExtension.lowercased() == SetLibrary.fileExtension {
+                library.browse(url)
+            }
         })
+    }
+
+    private func load(_ url: URL) {
+        if url == SetLibraryModel.loadedSet { return }
+        if url.pathExtension.lowercased() == SetLibrary.fileExtension { library.load(url) }
     }
 
     @ViewBuilder private func menu(for urls: Set<URL>) -> some View {
@@ -88,6 +105,10 @@ struct SetsSidebar: View {
         let item = items.count == 1 ? items.first : nil
         // New items go inside a clicked group, next to a clicked set, or at the top level.
         let group = item.map { $0.isGroup ? $0.url : $0.url.deletingLastPathComponent() } ?? library.folder
+        if let item, !item.isGroup {
+            Button("Load") { library.load(item.url) }
+            Divider()
+        }
         Button("New Set") { library.createSet(in: group) }
         Button("New Group") { startRenaming(library.createGroup(in: group)) }
         if let item {
@@ -142,15 +163,34 @@ private struct SetLibraryRow: View {
     }
 
     private var label: some View {
-        Label(item.name, systemImage: item.isGroup ? "folder" : "music.note.list")
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        SetLabel(name: item.name, isGroup: item.isGroup,
+                 isLoaded: library.loaded.map { $0.fileURL.standardizedFileURL == item.url.standardizedFileURL } ?? false)
             .contentShape(Rectangle())
             .background(isTargeted ? Theme.controlHover : .clear, in: RoundedRectangle(cornerRadius: 4))
             .tag(item.url)
             .draggable(item.url)
             .dropDestination(for: URL.self) { urls, _ in
-                library.drop(urls, into: item.isGroup ? item.url : item.url.deletingLastPathComponent())
+                library.drop(urls, onto: item)
             } isTargeted: { isTargeted = $0 }
+    }
+}
+
+private struct SetLabel: View {
+    let name: String
+    let isGroup: Bool
+    /// In the timeline and decks.
+    let isLoaded: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Label(name, systemImage: isGroup ? "folder" : "music.note.list")
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if isLoaded {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.accent)
+            }
+        }
     }
 }

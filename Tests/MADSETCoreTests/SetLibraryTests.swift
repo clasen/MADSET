@@ -81,6 +81,14 @@ import Testing
         #expect(names(items[0].children ?? []) == ["Early"])
     }
 
+    @Test func addsTracksToASetOnceEach() throws {
+        let url = try SetLibrary.createSet(named: "Peak", contents: try SetFile(bpm: 126, entries: [SetEntry(file: URL(filePath: "/music/a.mp3"))]).encoded(), in: root)
+        try SetLibrary.addTracks([URL(filePath: "/music/./a.mp3"), URL(filePath: "/music/b.mp3"), URL(filePath: "/music/b.mp3")], toSetAt: url)
+        let set = try SetFile.decode(Data(contentsOf: url))
+        #expect(set.entries.map(\.file.lastPathComponent) == ["a.mp3", "b.mp3"])
+        #expect(set.bpm == 126)
+    }
+
     @Test func renamingASetKeepsItsExtension() throws {
         try makeSet("Club/Peak.madset")
         let renamed = try SetLibrary.rename(root.appending(path: "Club/Peak.madset"), to: " Peak 3h ")

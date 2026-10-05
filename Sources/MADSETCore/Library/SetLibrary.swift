@@ -88,6 +88,16 @@ public enum SetLibrary {
         return moves
     }
 
+    /// Adds `files` to the end of the set at `url`, leaving out files it already plays.
+    public static func addTracks(_ files: [URL], toSetAt url: URL) throws {
+        var set = try SetFile.decode(Data(contentsOf: url))
+        var present = Set(set.entries.map(\.file.standardizedFileURL))
+        for file in files where present.insert(file.standardizedFileURL).inserted {
+            set.entries.append(SetEntry(file: file))
+        }
+        try set.encoded().write(to: url, options: .atomic)
+    }
+
     /// Renames a set or group in place; a set keeps its extension. Fails if the name is taken.
     public static func rename(_ item: URL, to name: String) throws -> URL {
         let name = try validated(name)
