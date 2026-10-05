@@ -95,7 +95,6 @@
 "Bar %lld / %lld" = "Compás %lld / %lld";
 
 /* Track list and timeline */
-"Set" = "Set";
 "Title" = "Título";
 "Artist" = "Artista";
 "Genre" = "Género";
