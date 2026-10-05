@@ -71,6 +71,66 @@ import Testing
         #expect(after.entries[2].startBar == before.entries[2].startBar - 24)
     }
 
+    @Test func anEditKeepsWhatPlaysUnlessItChangesIt() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (middle, last) = (before.entries[1], before.entries[2])
+        // B alone, between its two transitions.
+        let bar = Double(middle.startBar + middle.overlapBars + 12)
+        #expect(before.heard(atBar: bar).map(\.id) == [b])
+
+        // Mixing C in earlier ends B sooner, but B plays on where it is.
+        var nextMixedEarlier = entries
+        nextMixedEarlier[1].cueOutBar = last.previousCueOut(mixingInAt: last.mixInBar(after: middle) - 8, after: middle)
+        #expect(SetLayout(bpm: 124, entries: nextMixedEarlier, tracks: tracks, phraseBars: 8).shift(from: before, atBar: bar) == 0)
+
+        // Without A, which has played, B and what plays there move to the start of the set.
+        let withoutA = SetLayout(bpm: 124, entries: Array(entries.dropFirst()), tracks: tracks, phraseBars: 8)
+        #expect(withoutA.shift(from: before, atBar: bar) == -middle.startBar)
+
+        // Sliding B along keeps playing the same part of it: the set moves under it instead.
+        var slid = entries
+        slid[1].cueInBar = middle.cueInBar + 8
+        slid[1].overlapBars = middle.overlapBars
+        #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: bar) == -8)
+
+        // In the transition from A, sliding B alone would change what plays against A.
+        let mixing = Double(middle.startBar + 2)
+        #expect(before.heard(atBar: mixing).map(\.id) == [a, b])
+        #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: mixing) == nil)
+    }
+
+    @Test func aTransitionSoundsTheSameWhereverItSits() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        func mixesLikeBefore(_ entries: [SetEntry]) -> Bool {
+            let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+            let (previous, last) = (after.entries[after.entries.count - 2], after.entries[after.entries.count - 1])
+            return last.mixesIn(after: previous, like: before.entries[2], after: before.entries[1])
+        }
+        #expect(mixesLikeBefore(Array(entries.dropFirst())))
+
+        entries[2].bassSwapBar = before.entries[2].bassSwapBar + 1
+        #expect(!mixesLikeBefore(entries))
+
+        entries[2].bassSwapBar = nil
+        entries[1].cueOutBar = before.entries[1].cueOutBar - 8
+        entries[2].overlapBars = before.entries[2].overlapBars
+        #expect(!mixesLikeBefore(entries))
+    }
+
     @Test func keepsTheMixInPointInsideTheOutgoingTrack() {
         let a = UUID(), b = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [

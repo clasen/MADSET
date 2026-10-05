@@ -91,6 +91,19 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     public var lengthBars: Int { cueOutBar - cueInBar }
     public var endBar: Int { startBar + lengthBars }
 
+    /// Bar of the set where the track's own bar 0 falls; each set bar plays the track's bar that far in.
+    public var trackOrigin: Int { startBar - cueInBar }
+
+    /// Whether the transition into this track after `previous` sounds like the one into `other` after
+    /// `otherPrevious`, wherever each sits in its set: the same end of the same outgoing track, the
+    /// same start of this one, mixed the same way.
+    public func mixesIn(after previous: PlacedEntry, like other: PlacedEntry, after otherPrevious: PlacedEntry) -> Bool {
+        previous.id == otherPrevious.id && previous.file == otherPrevious.file && previous.grid == otherPrevious.grid
+            && previous.cueOutBar == otherPrevious.cueOutBar
+            && file == other.file && grid == other.grid && cueInBar == other.cueInBar && overlapBars == other.overlapBars
+            && bassSwapBar == other.bassSwapBar && fadeInBars == other.fadeInBars && fadeOutBars == other.fadeOutBars
+    }
+
     /// Track bars where `SetEntry.split(atBar:)` leaves the set sounding the same: the first part
     /// keeps the transition in, the second the transition into `next`, and each a bar of its own.
     /// Nil when the entry is too short.
@@ -225,6 +238,27 @@ public struct SetLayout: Sendable, Equatable {
 
     public func time(ofBar bar: Double) -> TimeInterval { bar * barDuration }
     public func bar(atTime time: TimeInterval) -> Double { time / barDuration }
+
+    /// Analyzed tracks that play at `bar`.
+    public func heard(atBar bar: Double) -> [PlacedEntry] {
+        entries.filter { $0.grid != nil && Double($0.startBar) <= bar && bar < Double($0.endBar) }
+    }
+
+    /// Bars that `bar` of `old` moves by in this layout when what plays there goes on unchanged:
+    /// the same tracks, each at the same place in it. Nil when the edit changes what plays at `bar`.
+    /// Same tempo in both.
+    public func shift(from old: SetLayout, atBar bar: Double) -> Int? {
+        let heard = old.heard(atBar: bar)
+        let edited = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        var shift = 0
+        for (index, entry) in heard.enumerated() {
+            guard let now = edited[entry.id], now.file == entry.file, now.grid == entry.grid else { return nil }
+            let moved = now.trackOrigin - entry.trackOrigin
+            guard index == 0 || moved == shift else { return nil }
+            shift = moved
+        }
+        return Set(self.heard(atBar: bar + Double(shift)).map(\.id)) == Set(heard.map(\.id)) ? shift : nil
+    }
 
     /// What the planner needs to know about a track.
     public struct TrackInfo: Sendable {

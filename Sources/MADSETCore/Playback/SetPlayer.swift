@@ -162,9 +162,6 @@ private struct Producer {
     let sources: SourceCache
     let engine: AVAudioEngine
 
-    /// Frames faded out before a jump and in after it, so the cut does not click.
-    static let declickFrames = 128
-
     func run() {
         var renderer: SetRenderer?
         /// The jump asked for: set frame to go on from, and the frame of the bar line to leave at.
@@ -199,10 +196,14 @@ private struct Producer {
                     if current.layout.bpm != layout.bpm {
                         jump = nil
                         let bar = Double(shared.playheadFrame) / current.framesPerBar
-                        current.update(layout)
+                        _ = current.update(layout)
                         flush(renderer: current, toFrame: Int(bar * current.framesPerBar))
                     } else {
-                        current.update(layout)
+                        let moved = current.update(layout)
+                        if moved != 0 {
+                            jump?.at += moved
+                            follow(renderer: current, movedBy: moved)
+                        }
                     }
                 case .seek(let time):
                     jump = nil
@@ -218,40 +219,39 @@ private struct Producer {
                 Thread.sleep(forTimeInterval: 0.002)
                 continue
             }
-            var frames = config.blockFrames
-            var fadesOut = false
-            if let pending = jump {
-                if renderer.position >= pending.at {
-                    // The callback takes one jump at a time; it is at most a buffer away.
-                    guard !shared.jumpPending else {
-                        Thread.sleep(forTimeInterval: 0.002)
-                        continue
-                    }
-                    shared.jump(toFrame: pending.target)
-                    renderer.seek(toFrame: pending.target)
-                    jump = nil
-                    fadesIn = true
-                } else if pending.at - renderer.position <= frames {
-                    frames = pending.at - renderer.position
-                    fadesOut = true
+            if let pending = jump, renderer.position >= pending.at {
+                // The callback takes one jump at a time; it is at most a buffer away.
+                guard !shared.jumpPending else {
+                    Thread.sleep(forTimeInterval: 0.002)
+                    continue
                 }
+                shared.jump(toFrame: pending.target)
+                renderer.seek(toFrame: pending.target)
+                jump = nil
+                fadesIn = true
             }
+            // Blocks end on the bar line a jump or an edit waits for.
+            let lines = [jump?.at, renderer.pendingUpdateFrame].compactMap { $0 }.filter { $0 > renderer.position }
+            let frames = min(config.blockFrames, lines.map { $0 - renderer.position }.min() ?? config.blockFrames)
+            let fadesOut = jump.map { renderer.position + frames == $0.at } ?? false
             renderer.render(frames: frames, left: left, right: right)
-            if fadesOut { Self.ramp(left, right, frames: frames, fadingIn: false) }
-            if fadesIn { Self.ramp(left, right, frames: frames, fadingIn: true) }
+            if fadesOut { SetRenderer.ramp([left, right], frames: frames, fadingIn: false) }
+            if fadesIn { SetRenderer.ramp([left, right], frames: frames, fadingIn: true) }
             fadesIn = false
             shared.write(left: left, right: right, frames: frames)
         }
     }
 
-    /// Fades the last `declickFrames` of a block out, or its first ones in.
-    private static func ramp(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>, frames: Int, fadingIn: Bool) {
-        let length = min(declickFrames, frames)
-        for i in 0..<length {
-            let gain = Float(i) / Float(length)
-            let index = fadingIn ? i : frames - 1 - i
-            left[index] *= gain
-            right[index] *= gain
+
+    /// Keeps the playhead on what plays after an edit moved it `frames` along the set: from the next
+    /// frame written while playing, so it goes on without a break; otherwise at once.
+    func follow(renderer: SetRenderer, movedBy frames: Int) {
+        // The callback takes one jump at a time; it is at most a buffer away.
+        while shared.jumpPending, shared.isSounding { Thread.sleep(forTimeInterval: 0.001) }
+        if shared.isSounding {
+            shared.jump(toFrame: renderer.position)
+        } else {
+            flush(renderer: renderer, toFrame: shared.playheadFrame + frames)
         }
     }
 
@@ -344,6 +344,9 @@ private final class SharedState: @unchecked Sendable {
     }
 
     var jumpPending: Bool { jumpIsPending.load(ordering: .acquiring) }
+
+    /// The callback is playing out of the buffer.
+    var isSounding: Bool { transport.load(ordering: .acquiring) == Transport.playing.rawValue }
 
     /// Producer side, while no jump is pending: what is written from now on plays from set frame `frame`.
     func jump(toFrame frame: Int) {

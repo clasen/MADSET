@@ -13,6 +13,11 @@ import Testing
 
     /// Two synthetic tracks at different tempos, analyzed for real, placed with an automatic transition.
     private func twoTrackSet(bpm: Double) throws -> (SetLayout, SourceCache) {
+        let (entries, tracks, sources) = try twoTracks()
+        return (SetLayout(bpm: bpm, entries: entries, tracks: tracks, phraseBars: 8), sources)
+    }
+
+    private func twoTracks() throws -> ([SetEntry], [UUID: SetLayout.TrackInfo], SourceCache) {
         let a = Synth.track(bpm: 124, bars: 48, leadIn: 0.3) { $0 < 40 ? [.kick, .bass, .hats] : [.kick, .hats] }
         let b = Synth.track(bpm: 130, bars: 48, leadIn: 0.7) { $0 < 16 ? [.kick, .hats] : [.kick, .bass, .hats, .pad] }
         let urls = [URL(filePath: "/synthetic/a.wav"), URL(filePath: "/synthetic/b.wav")]
@@ -23,11 +28,10 @@ import Testing
             let analysis = try TrackAnalyzer.analyze(samples: audio[entry.file]!, needsKey: false, config: analysisConfig)
             tracks[entry.id] = .init(analysis: analysis, duration: analysis.duration)
         }
-        let layout = SetLayout(bpm: bpm, entries: entries, tracks: tracks, phraseBars: 8)
         let sources = SourceCache(capacity: 2, sampleRate: Synth.sampleRate) { url, _ in
             PCMBuffer(channels: [audio[url]!, audio[url]!], sampleRate: Synth.sampleRate)
         }
-        return (layout, sources)
+        return (entries, tracks, sources)
     }
 
     private func render(_ renderer: SetRenderer, frames total: Int) -> [Float] {
@@ -130,6 +134,69 @@ import Testing
         var error = analysis.grid.firstDownbeat.truncatingRemainder(dividingBy: beat)
         if error > beat / 2 { error -= beat }
         #expect(abs(error) < 0.012)
+    }
+
+    /// An edit of the next transition, which ends the playing track sooner, leaves it playing untouched.
+    @Test func playsOnThroughAnEditOfTheNextTransition() throws {
+        var (entries, tracks, sources) = try twoTracks()
+        let layout = SetLayout(bpm: 126, entries: entries, tracks: tracks, phraseBars: 8)
+        let renderer = SetRenderer(layout: layout, sources: sources, config: playback)
+        let reference = SetRenderer(layout: layout, sources: sources, config: playback)
+        for player in [renderer, reference] { player.seek(toFrame: Int(4.5 * renderer.framesPerBar)) }
+        let bar = Int(renderer.framesPerBar)
+        #expect(render(renderer, frames: bar) == render(reference, frames: bar))
+
+        entries[0].cueOutBar = layout.entries[0].cueOutBar - 8
+        #expect(renderer.update(SetLayout(bpm: 126, entries: entries, tracks: tracks, phraseBars: 8)) == 0)
+        #expect(render(renderer, frames: 2 * bar) == render(reference, frames: 2 * bar))
+    }
+
+    /// Without the track that has played, the one playing goes on where it is, and the position moves with it.
+    @Test func playsOnWhenATrackThatHasPlayedIsRemoved() throws {
+        let (entries, tracks, sources) = try twoTracks()
+        let layout = SetLayout(bpm: 126, entries: entries, tracks: tracks, phraseBars: 8)
+        let second = layout.entries[1]
+        let renderer = SetRenderer(layout: layout, sources: sources, config: playback)
+        let reference = SetRenderer(layout: layout, sources: sources, config: playback)
+        let start = Int((Double(second.startBar + second.overlapBars) + 2.5) * renderer.framesPerBar)
+        for player in [renderer, reference] { player.seek(toFrame: start) }
+        let bar = Int(renderer.framesPerBar)
+        _ = render(renderer, frames: bar)
+        _ = render(reference, frames: bar)
+
+        let moved = renderer.update(SetLayout(bpm: 126, entries: [entries[1]], tracks: tracks, phraseBars: 8))
+        #expect(moved == -Int((Double(second.startBar) * renderer.framesPerBar).rounded()))
+        #expect(renderer.position == start + bar + moved)
+        #expect(render(renderer, frames: 2 * bar) == render(reference, frames: 2 * bar))
+    }
+
+    /// An edit that changes what plays keeps the old mix up to the next bar line and the new one from there.
+    @Test func anEditOfWhatPlaysWaitsForTheBarLine() throws {
+        let (entries, tracks, sources) = try twoTracks()
+        let layout = SetLayout(bpm: 126, entries: entries, tracks: tracks, phraseBars: 8)
+        let renderer = SetRenderer(layout: layout, sources: sources, config: playback)
+        let reference = SetRenderer(layout: layout, sources: sources, config: playback)
+        let bar = renderer.framesPerBar
+        // Mid-bar while the first track plays alone, which the edit removes.
+        let start = Int(4.5 * bar)
+        for player in [renderer, reference] { player.seek(toFrame: start) }
+
+        let edited = SetLayout(bpm: 126, entries: [entries[1]], tracks: tracks, phraseBars: 8)
+        #expect(renderer.update(edited) == 0)
+        let line = Int((5 * bar).rounded())
+        #expect(renderer.pendingUpdateFrame == line)
+
+        let declick = SetRenderer.declickFrames
+        let before = render(renderer, frames: line - start)
+        #expect(Array(before.dropLast(declick)) == Array(render(reference, frames: line - start).dropLast(declick)))
+        #expect(before.suffix(declick).allSatisfy { abs($0) < 0.9 })
+
+        let after = SetRenderer(layout: edited, sources: sources, config: playback)
+        after.seek(toFrame: line)
+        let frames = Int(bar)
+        // The fade in goes through the equalizer, whose filters take a moment to forget it.
+        let settled = Int(bar / 4)
+        #expect(Array(render(renderer, frames: frames).dropFirst(settled)) == Array(render(after, frames: frames).dropFirst(settled)))
     }
 
     /// A temporary file named the way the save panel names it: with the format's preferred extension.
