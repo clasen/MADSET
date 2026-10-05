@@ -1,8 +1,9 @@
 import MADSETCore
 import SwiftUI
 
-/// Two decks and the mixer between them, following the playhead. Deck A shows the first timeline
-/// lane and deck B the second: the track playing on it, or else the next one it will play.
+/// Two decks and the mixer between them, following the playhead, or the monitor head in monitor mode.
+/// Deck A shows the first timeline lane and deck B the second: the track playing on it, or else the
+/// next one it will play.
 struct DeckPanel: View {
     let document: SetDocument
     let clips: [TimelineClip]
@@ -10,7 +11,7 @@ struct DeckPanel: View {
 
     var body: some View {
         SwiftUI.TimelineView(.periodic(from: .now, by: 1.0 / 20)) { _ in
-            let time = document.currentTime
+            let time = document.transportTime
             let decks = [0, 1].map { DeckState(lane: $0, clips: clips, time: time) }
             HStack(spacing: 1) {
                 DeckView(lane: 0, deck: decks[0], time: time, seek: document.seek(to:))
@@ -247,6 +248,8 @@ private struct MixerView: View {
     let decks: [DeckState]
     let time: TimeInterval
 
+    private var playColor: Color { document.monitorMode ? Color(nsColor: Theme.monitor) : Theme.play }
+
     var body: some View {
         VStack(spacing: 10) {
             HStack(alignment: .center, spacing: 18) {
@@ -260,17 +263,23 @@ private struct MixerView: View {
                         }
                         .help(String(localized: "Back to Start"))
                         Button { document.togglePlayback() } label: {
-                            Image(systemName: document.isPlaying ? "pause.fill" : "play.fill")
+                            Image(systemName: document.transportIsPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(Theme.play)
+                                .foregroundStyle(playColor)
                                 .frame(width: 60, height: 30)
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.play, lineWidth: 2))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(playColor, lineWidth: 2))
                         }
-                        .help(document.isPlaying ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
+                        .help(document.transportIsPlaying ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
                     }
                     .buttonStyle(.plain)
                     Text(formatDuration(time)).font(.system(size: 22, weight: .medium)).monospacedDigit()
-                    Text("/ \(formatDuration(layout.duration))").font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                        .foregroundStyle(document.monitorMode ? Color(nsColor: Theme.monitor) : .primary)
+                    if document.monitorMode {
+                        Text("Main \(formatDuration(document.currentTime))")
+                            .textCase(.uppercase).font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(.secondary)
+                    } else {
+                        Text("/ \(formatDuration(layout.duration))").font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                    }
                 }
                 ChannelMeter(levels: decks[1].levels(at: time), color: Theme.decks[1])
             }
@@ -278,6 +287,14 @@ private struct MixerView: View {
         }
         .padding(12)
         .frame(width: 290)
+        .overlay(alignment: .topLeading) {
+            if document.monitorMode {
+                Label("Monitor", systemImage: "headphones")
+                    .textCase(.uppercase).font(.system(size: 9, weight: .heavy)).tracking(0.6)
+                    .foregroundStyle(Color(nsColor: Theme.monitor))
+                    .padding(8)
+            }
+        }
         .frame(maxHeight: .infinity)
         .background(Theme.panel)
     }

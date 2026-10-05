@@ -29,6 +29,8 @@ public struct AppConfig: Sendable {
         public var cachedSources: Int
         /// Tempo of a set before any of its tracks is analyzed.
         public var emptySetBPM: Double
+        /// Bars of the outgoing track a transition preview on the monitor plays before the transition.
+        public var monitorLeadInBars: Int
     }
 
     public struct Sync: Sendable {
@@ -89,7 +91,8 @@ public struct AppConfig: Sendable {
             bufferSeconds: 0.35,
             prefetchSeconds: 45,
             cachedSources: 6,
-            emptySetBPM: 124
+            emptySetBPM: 124,
+            monitorLeadInBars: 8
         ),
         sync: Sync(clockLookahead: 0.03, clockPollInterval: 0.005, maxOffset: 0.15),
         export: Export(wavBitDepth: 24, aacBitRate: 256_000),

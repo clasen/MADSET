@@ -51,10 +51,18 @@ public final class PlayheadClock: Sendable {
     /// Audio callback side: set frame `frame` starts the buffer rendered for `timestamp`.
     func publish(frame: Int, at timestamp: AudioTimeStamp) {
         let framesPerBeat = Double(bitPattern: framesPerBeat.load(ordering: .acquiring))
-        guard timestamp.mFlags.contains(.hostTimeValid), framesPerBeat > 0 else { return stop() }
-        let latency = Double(bitPattern: outputLatency.load(ordering: .acquiring))
-        let heard = timestamp.mHostTime + HostTime.ticks(latency)
+        guard let heard = heardTicks(of: timestamp), framesPerBeat > 0 else { return stop() }
         anchor.store(WordPair(first: UInt(heard), second: UInt((Double(frame) / framesPerBeat).bitPattern)), ordering: .releasing)
+    }
+
+    /// Audio callback side: host time, in seconds, the buffer rendered for `timestamp` is heard at.
+    func heardTime(of timestamp: AudioTimeStamp) -> Double? {
+        heardTicks(of: timestamp).map(HostTime.seconds)
+    }
+
+    private func heardTicks(of timestamp: AudioTimeStamp) -> UInt64? {
+        guard timestamp.mFlags.contains(.hostTimeValid) else { return nil }
+        return timestamp.mHostTime + HostTime.ticks(Double(bitPattern: outputLatency.load(ordering: .acquiring)))
     }
 
     func stop() {

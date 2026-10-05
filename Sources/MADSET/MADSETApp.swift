@@ -79,12 +79,16 @@ private struct SetCommands: Commands {
             }
         }
         CommandMenu("Playback") {
-            Button(document?.isPlaying == true ? LocalizedStringKey("Pause") : LocalizedStringKey("Play")) { document?.togglePlayback() }
+            Button(document?.transportIsPlaying == true ? LocalizedStringKey("Pause") : LocalizedStringKey("Play")) { document?.togglePlayback() }
                 .keyboardShortcut(.space, modifiers: [])
                 .disabled(document == nil)
             Button("Back to Start") { document?.seek(to: 0) }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
                 .disabled(document == nil)
+            Divider()
+            Toggle("Monitor Mode", isOn: Binding { document?.monitorMode == true } set: { document?.setMonitorMode($0) })
+                .keyboardShortcut("m", modifiers: [])
+                .disabled(document == nil || !DeviceSettings.shared.hasMonitorOutput)
         }
     }
 

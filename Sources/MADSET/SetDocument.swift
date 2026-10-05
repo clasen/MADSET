@@ -29,6 +29,11 @@ final class SetDocument {
     private(set) var isPlaying = false
     /// Tracks under the playhead, playing or paused.
     private(set) var nowPlaying: Set<Track.ID> = []
+    /// While on, the transport, the decks and seeks act on the monitor, which plays the set through
+    /// the monitor output so a part ahead of the playhead can be tried while the main output goes on.
+    private(set) var monitorMode = false
+    /// The monitor plays (or waits for the main output's beat to come in on).
+    private(set) var isMonitoring = false
     private(set) var playbackError: String?
     /// Fraction done of the running export; nil when none is running.
     private(set) var exportProgress: Double?
@@ -39,6 +44,7 @@ final class SetDocument {
 
     @ObservationIgnored private var queue: Task<Void, Never>?
     @ObservationIgnored private var player: SetPlayer?
+    @ObservationIgnored private var monitor: SetPlayer?
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
@@ -79,6 +85,7 @@ final class SetDocument {
         saveNow()
         player?.pause()
         isPlaying = false
+        setMonitorMode(false)
         cancelExport()
         undoManager?.removeAllActions(withTarget: self)
     }
@@ -302,41 +309,117 @@ final class SetDocument {
 
     // MARK: - Playback
 
+    // The main output and the monitor behave alike: heads land on bars, a playing player moves on at
+    // its next bar line without a gap, and play starts from the bar under the head. The main output
+    // also drives MIDI clock; the monitor plays in phase with it.
+
+    /// Plays or pauses the main output, or the monitor while monitor mode is on. Playing starts at the
+    /// bar under the head, or at the start once the head has reached the end of the set.
     func togglePlayback() {
-        guard let player = ensurePlayer() else { return }
+        guard let player = transportPlayer() else { return }
         if player.isPlaying {
             player.pause()
         } else {
-            if player.currentTime >= layout.duration { player.seek(to: 0) }
-            DeviceSettings.shared.follow(player)
-            do {
-                try player.play()
-            } catch {
-                playbackError = error.localizedDescription
-            }
+            let bar = layout.bar(atTime: player.currentTime).rounded(.down)
+            if player === self.player { DeviceSettings.shared.follow(player) }
+            play { try player.play(from: layout.time(ofBar: bar < Double(layout.totalBars) ? clampedBar(bar) : 0)) }
         }
-        isPlaying = player.isPlaying
+        refreshTransport()
     }
 
+    /// Moves the playhead, or the monitor head while monitor mode is on, to the bar nearest `time`.
+    /// A playing player plays on to its next bar line and goes on from there, so there is no gap.
     func seek(to time: TimeInterval) {
-        ensurePlayer()?.seek(to: min(max(0, time), layout.duration))
+        guard let player = transportPlayer() else { return }
+        play { try player.move(to: layout.time(ofBar: clampedBar(layout.bar(atTime: time).rounded()))) }
+        refreshTransport()
     }
 
     /// Seconds into the set at the playhead.
     var currentTime: TimeInterval { player?.currentTime ?? 0 }
 
-    /// Follows the playhead and stops at the end of the set. Called by the transport while it polls the playhead.
+    /// What the transport shows and plays: the monitor while monitor mode is on, else the main output.
+    var transportTime: TimeInterval { monitorMode ? monitor?.currentTime ?? 0 : currentTime }
+    var transportIsPlaying: Bool { monitorMode ? isMonitoring : isPlaying }
+
+    /// Follows the playhead and the monitor head and stops each at the end of the set. Called by the
+    /// transport while it polls them.
     func playbackTick() {
         let layout = layout
         let bar = layout.bar(atTime: currentTime)
         let current = Set(layout.entries.filter { Double($0.startBar) <= bar && bar < Double($0.endBar) }.map(\.id))
         if current != nowPlaying { nowPlaying = current }
-        guard let player, player.isPlaying, player.currentTime >= layout.duration else { return }
-        player.pause()
-        isPlaying = false
+        for player in [player, monitor].compactMap({ $0 }) where player.isPlaying && player.currentTime >= layout.duration {
+            player.pause()
+        }
+        refreshTransport()
     }
 
     func clearPlaybackError() { playbackError = nil }
+
+    /// Turns monitor mode on or off. On, the monitor head starts at the next bar of the playhead
+    /// unless it was cued before; off, the monitor stops.
+    func setMonitorMode(_ on: Bool) {
+        guard on != monitorMode else { return }
+        guard on else {
+            monitor?.pause()
+            monitorMode = false
+            refreshTransport()
+            return
+        }
+        let isNew = monitor == nil
+        guard let monitor = ensureMonitor() else { return }
+        if isNew { monitor.seek(to: layout.time(ofBar: clampedBar(layout.bar(atTime: currentTime).rounded(.up)))) }
+        monitorMode = true
+    }
+
+    /// Where the playhead goes on from once it reaches its next bar line, while a move waits for it.
+    var pendingPlayhead: TimeInterval? { player?.pendingMove }
+
+    /// The same for the monitor head, while monitor mode is on.
+    var pendingMonitorHead: TimeInterval? { monitorMode ? monitor?.pendingMove : nil }
+
+    /// Where the monitor head is and whether the monitor plays, while monitor mode is on.
+    var monitorHead: (time: TimeInterval, isPlaying: Bool)? {
+        guard monitorMode, let monitor else { return nil }
+        return (monitor.currentTime, monitor.isPlaying)
+    }
+
+    /// Plays the transition into `id` on the monitor, from a few bars before it, turning monitor mode on.
+    func previewTransition(into id: Track.ID) {
+        let layout = layout
+        guard let entry = layout.entries.first(where: { $0.id == id }) else { return }
+        setMonitorMode(true)
+        guard monitorMode, let monitor else { return }
+        let time = layout.time(ofBar: clampedBar(Double(entry.startBar - Self.config.playback.monitorLeadInBars)))
+        play { try monitor.isPlaying ? monitor.move(to: time) : monitor.play(from: time) }
+        refreshTransport()
+    }
+
+    /// The player the transport acts on.
+    private func transportPlayer() -> SetPlayer? {
+        monitorMode ? ensureMonitor() : ensurePlayer()
+    }
+
+    /// A bar a head can be on: from the first bar of the set to its last.
+    private func clampedBar(_ bar: Double) -> Double {
+        min(max(0, bar), Double(max(0, layout.totalBars - 1)))
+    }
+
+    private func refreshTransport() {
+        let playing = player?.isPlaying ?? false
+        let monitoring = monitor?.isPlaying ?? false
+        if isPlaying != playing { isPlaying = playing }
+        if isMonitoring != monitoring { isMonitoring = monitoring }
+    }
+
+    private func play(_ start: () throws -> Void) {
+        do {
+            try start()
+        } catch {
+            playbackError = error.localizedDescription
+        }
+    }
 
     @discardableResult
     private func ensurePlayer() -> SetPlayer? {
@@ -353,8 +436,30 @@ final class SetDocument {
         }
     }
 
+    /// The monitor, following the main output's beat, while there is a monitor output to play it through.
+    private func ensureMonitor() -> SetPlayer? {
+        guard DeviceSettings.shared.hasMonitorOutput else {
+            playbackError = String(localized: "Choose a monitor output in Settings to preview the set.")
+            return nil
+        }
+        if let monitor { return monitor }
+        guard let player = ensurePlayer() else { return nil }
+        do {
+            let monitor = try SetPlayer(config: Self.config.playback, sources: Self.sources, following: player.clock)
+            DeviceSettings.shared.registerMonitor(monitor)
+            monitor.load(layout)
+            self.monitor = monitor
+            return monitor
+        } catch {
+            playbackError = error.localizedDescription
+            return nil
+        }
+    }
+
     private func syncPlayer() {
+        let layout = layout
         player?.load(layout)
+        monitor?.load(layout)
     }
 
     // MARK: - Export

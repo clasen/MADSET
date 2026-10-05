@@ -62,6 +62,7 @@ struct ContentView: View {
         .background(Theme.window)
         .background(PlaybackTicker(document: document))
         .background(KeyMonitor(keyCode: KeyMonitor.space, modifiers: []) { document.togglePlayback() })
+        .background(KeyMonitor(keyCode: KeyMonitor.m, modifiers: []) { document.setMonitorMode(!document.monitorMode) })
         // ⌘ so a stray Delete never drops a track. The list and the timeline share the selection
         // while the list shows the loaded set; otherwise it removes from the one with the focus.
         .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
@@ -92,6 +93,9 @@ struct ContentView: View {
                 Toggle("Follow Playhead", systemImage: "arrow.right.to.line", isOn: $followsPlayhead)
                     .keyboardShortcut("f", modifiers: [.command, .option])
                     .help(String(localized: "Scroll the timeline along with the playhead while playing (⌥⌘F)"))
+                Toggle("Monitor", systemImage: "headphones", isOn: Binding { document.monitorMode } set: { document.setMonitorMode($0) })
+                    .tint(Color(nsColor: Theme.monitor))
+                    .help(String(localized: "Monitor mode (M): play, pause and clicks on the ruler or the decks move a second head that plays through the monitor output, in time with the set, while the set goes on"))
             }
         }
         .alert("Playback is not available", isPresented: Binding(get: { document.playbackError != nil }, set: { if !$0 { document.clearPlaybackError() } })) {
@@ -215,13 +219,25 @@ private struct ExportProgressSheet: View {
     }
 }
 
-/// Polls the playhead so the document follows it, with or without the decks.
+/// Polls the playhead and the monitor head so the document follows them, with or without the decks.
 private struct PlaybackTicker: View {
     let document: SetDocument
 
     var body: some View {
         SwiftUI.TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            Color.clear.task(id: document.currentTime) { document.playbackTick() }
+            Color.clear.task(id: Position(document)) { document.playbackTick() }
+        }
+    }
+
+    private struct Position: Equatable {
+        let playhead: TimeInterval
+        let monitorHead: TimeInterval?
+        let isMonitoring: Bool
+
+        @MainActor init(_ document: SetDocument) {
+            playhead = document.currentTime
+            monitorHead = document.monitorHead?.time
+            isMonitoring = document.monitorHead?.isPlaying == true
         }
     }
 }
@@ -232,10 +248,12 @@ private struct CompactTransport: View {
     let duration: TimeInterval
 
     var body: some View {
-        Button(document.isPlaying ? "Pause" : "Play", systemImage: document.isPlaying ? "pause.fill" : "play.fill") { document.togglePlayback() }
-            .help(document.isPlaying ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
+        let playing = document.transportIsPlaying
+        Button(playing ? "Pause" : "Play", systemImage: playing ? "pause.fill" : "play.fill") { document.togglePlayback() }
+            .foregroundStyle(document.monitorMode ? Color(nsColor: Theme.monitor) : .primary)
+            .help(playing ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
         SwiftUI.TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            Text("\(formatDuration(document.currentTime)) / \(formatDuration(duration))")
+            Text("\(formatDuration(document.transportTime)) / \(formatDuration(duration))")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .padding(.leading, 2)
@@ -293,6 +311,7 @@ private struct PaneSplitter: View {
 private struct KeyMonitor: NSViewRepresentable {
     static let space: UInt16 = 49
     static let delete: UInt16 = 51
+    static let m: UInt16 = 46
 
     let keyCode: UInt16
     /// Exactly the modifiers that must be held.

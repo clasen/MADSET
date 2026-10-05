@@ -22,6 +22,8 @@ struct TimelineView: NSViewRepresentable {
         canvas.arrange = { TimelineClip.clips(for: document.layout(applying: $0), tracks: document.tracks) }
         canvas.onSeek = { document.seek(to: $0) }
         canvas.playhead = { (document.currentTime, document.isPlaying) }
+        canvas.monitorHead = { document.monitorHead }
+        canvas.pendingHeads = { (document.pendingPlayhead, document.pendingMonitorHead) }
         canvas.followsPlayhead = followsPlayhead
         canvas.onFollowsPlayheadChange = { followsPlayhead = $0 }
         canvas.clips = clips

@@ -111,12 +111,20 @@ public final class SetRenderer {
         TransitionCurves.gains(for: entry, next: next, atBar: Double(frame) / framesPerBar)
     }
 
+    /// Starts decoding the tracks that play soon after `frame`, so a jump there finds them ready.
+    public func prefetch(from frame: Int) {
+        for entry in upcoming(from: frame) { sources.prefetch(entry.file) }
+    }
+
     private func prefetchUpcoming() {
-        let horizon = position + Int(prefetchSeconds * sampleRate)
-        for entry in layout.entries where entry.grid != nil {
-            let start = frame(ofBar: Double(entry.startBar))
-            let end = frame(ofBar: Double(entry.endBar))
-            if start <= horizon, end > position, voices[entry.id] == nil { sources.prefetch(entry.file) }
+        for entry in upcoming(from: position) where voices[entry.id] == nil { sources.prefetch(entry.file) }
+    }
+
+    /// Tracks that play within the prefetch horizon from `frame`.
+    private func upcoming(from frame: Int) -> [PlacedEntry] {
+        let horizon = frame + Int(prefetchSeconds * sampleRate)
+        return layout.entries.filter { entry in
+            entry.grid != nil && self.frame(ofBar: Double(entry.startBar)) <= horizon && self.frame(ofBar: Double(entry.endBar)) > frame
         }
     }
 

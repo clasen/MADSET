@@ -5,8 +5,8 @@ import MADSETCore
 import Observation
 
 /// Where the app plays and what it syncs, chosen in Settings and kept across launches: the main
-/// output every player plays through, the monitor output (stored only, nothing is cued there yet)
-/// and the MIDI destination that gets clock locked to the set's beats.
+/// output every player plays through, the monitor output the monitors preview through (each on a
+/// pair of its device's channels) and the MIDI destination that gets clock locked to the set's beats.
 @MainActor
 @Observable
 final class DeviceSettings {
@@ -20,13 +20,34 @@ final class DeviceSettings {
     var mainOutput: String? {
         didSet {
             UserDefaults.standard.set(mainOutput, forKey: Keys.mainOutput)
+            mainChannel = 0
+            applyMainOutput()
+        }
+    }
+
+    /// First channel (from 0) of the pair of the main output's channels the set plays on.
+    var mainChannel: Int {
+        didSet {
+            UserDefaults.standard.set(mainChannel, forKey: Keys.mainChannel)
             applyMainOutput()
         }
     }
 
     /// UID of the monitor (pre-cueing) output; nil for none.
     var monitorOutput: String? {
-        didSet { UserDefaults.standard.set(monitorOutput, forKey: Keys.monitorOutput) }
+        didSet {
+            UserDefaults.standard.set(monitorOutput, forKey: Keys.monitorOutput)
+            monitorChannel = 0
+            applyMonitorOutput()
+        }
+    }
+
+    /// First channel (from 0) of the pair of the monitor output's channels the monitors play on.
+    var monitorChannel: Int {
+        didSet {
+            UserDefaults.standard.set(monitorChannel, forKey: Keys.monitorChannel)
+            applyMonitorOutput()
+        }
     }
 
     /// Unique ID of the MIDI destination that gets clock; nil sends none.
@@ -50,10 +71,13 @@ final class DeviceSettings {
     @ObservationIgnored private var clock: MIDIClockSender?
     @ObservationIgnored private var deviceObserver: AudioDevices.DeviceObserver?
     @ObservationIgnored private let players = NSHashTable<SetPlayer>.weakObjects()
+    @ObservationIgnored private let monitors = NSHashTable<SetPlayer>.weakObjects()
 
     private enum Keys {
         static let mainOutput = "mainOutput"
         static let monitorOutput = "monitorOutput"
+        static let mainChannel = "mainOutputChannel"
+        static let monitorChannel = "monitorOutputChannel"
         static let clockDestination = "midiClockDestination"
         static let clockOffset = "midiClockOffset"
     }
@@ -62,6 +86,8 @@ final class DeviceSettings {
         let defaults = UserDefaults.standard
         mainOutput = defaults.string(forKey: Keys.mainOutput)
         monitorOutput = defaults.string(forKey: Keys.monitorOutput)
+        mainChannel = defaults.integer(forKey: Keys.mainChannel)
+        monitorChannel = defaults.integer(forKey: Keys.monitorChannel)
         clockDestination = (defaults.object(forKey: Keys.clockDestination) as? Int).map { MIDIUniqueID($0) }
         clockOffset = defaults.double(forKey: Keys.clockOffset)
 
@@ -81,7 +107,7 @@ final class DeviceSettings {
     /// Plays `player` through the main output from now on, and through every later choice.
     func register(_ player: SetPlayer) {
         players.add(player)
-        apply(mainOutputDevice, to: player)
+        apply(mainTarget, to: player)
     }
 
     /// Sends clock along `player`'s playhead; called when it starts playing.
@@ -89,30 +115,74 @@ final class DeviceSettings {
         clock?.follow(player.clock)
     }
 
+    /// Plays `monitor` through the monitor output from now on, and through every later choice.
+    /// While there is none it stays paused, so a preview never reaches another output.
+    func registerMonitor(_ monitor: SetPlayer) {
+        monitors.add(monitor)
+        applyMonitor(to: monitor)
+    }
+
+    /// Whether the monitor output and its channels are there to preview through.
+    var hasMonitorOutput: Bool { monitorTarget != nil }
+
+    /// Whether previews are heard through the main output too, by everyone.
+    var monitorIsMainOutput: Bool { monitorTarget == mainTarget }
+
+    /// The connected output with this UID.
+    func output(_ uid: String?) -> AudioOutputDevice? {
+        outputs.first { $0.uid == uid }
+    }
+
     func clearError() { error = nil }
 
-    /// The chosen main output while it is connected, else the system's default.
-    private var mainOutputDevice: AudioDeviceID {
-        outputs.first { $0.uid == mainOutput }?.id ?? AudioDevices.defaultOutput()
+    /// A device and the first of the pair of its channels a player plays on.
+    private struct Target: Equatable {
+        let device: AudioDeviceID
+        let channel: Int
+    }
+
+    /// The chosen main output while it is connected, else the system's default; on its first pair
+    /// when the chosen one is gone, since the set must go on.
+    private var mainTarget: Target {
+        guard let device = output(mainOutput) else { return Target(device: AudioDevices.defaultOutput(), channel: 0) }
+        return Target(device: device.id, channel: device.firstChannels.contains(mainChannel) ? mainChannel : 0)
+    }
+
+    /// The chosen monitor output and channels while they are there, else nil: a preview never moves
+    /// to other channels, where it could reach the audience.
+    private var monitorTarget: Target? {
+        guard let device = output(monitorOutput), device.firstChannels.contains(monitorChannel) else { return nil }
+        return Target(device: device.id, channel: monitorChannel)
     }
 
     private func applyMainOutput() {
-        let device = mainOutputDevice
-        for player in players.allObjects { apply(device, to: player) }
+        let target = mainTarget
+        for player in players.allObjects { apply(target, to: player) }
     }
 
-    private func apply(_ device: AudioDeviceID, to player: SetPlayer) {
+    private func applyMonitorOutput() {
+        for monitor in monitors.allObjects { applyMonitor(to: monitor) }
+    }
+
+    private func applyMonitor(to monitor: SetPlayer) {
+        guard let target = monitorTarget else { return monitor.pause() }
+        apply(target, to: monitor)
+    }
+
+    private func apply(_ target: Target, to player: SetPlayer) {
         do {
-            try player.setOutputDevice(device)
+            try player.setOutput(target.device, firstChannel: target.channel)
         } catch {
             self.error = String(localized: "Could not switch the output: \(error.localizedDescription)")
         }
     }
 
-    /// A device that comes back takes over again; one that goes leaves the default playing.
+    /// A device that comes back takes over again; a main output that goes leaves the default
+    /// playing, a monitor output that goes pauses the monitors.
     private func audioDevicesChanged() {
         outputs = AudioDevices.outputs()
         applyMainOutput()
+        applyMonitorOutput()
     }
 
     /// A destination that comes back gets clock again.

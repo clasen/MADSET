@@ -20,16 +20,15 @@ public struct MIDIDestination: Hashable, Sendable, Identifiable {
     }
 }
 
-/// MIDI beat clock that follows the set: 24 clocks per beat and song position 0 at the set's first
-/// bar, so a receiver's bars and kick land on the set's. A paused set sends Stop; starting it, or a
-/// jump of the playhead, sends Song Position and Continue (Start at the very beginning).
+/// MIDI beat clock that follows the set: 24 clocks per beat, started on a bar of the set, so a
+/// receiver's bars and kick land on the set's. A paused set sends Stop; playing it, or a jump of the
+/// playhead, sends Start on the next bar. A jump by whole bars that keeps the beat, as moving the
+/// playhead while it plays does, goes on clocking without a break. Start rather than Song Position
+/// and Continue, which many receivers ignore; a pattern longer than a bar therefore restarts on that bar.
 /// Times are host seconds. Pure, so it is tested without Core MIDI.
 public struct MIDIClockSchedule: Sendable {
     public enum Message: Equatable, Sendable {
-        case clock, start, `continue`, stop
-        /// Sixteenth notes from the start, modulo 16384 (the 14 bits Song Position has): 1024 bars,
-        /// a multiple of any pattern length, so the receiver's pattern stays in phase in long sets.
-        case songPosition(Int)
+        case clock, start, stop
     }
 
     public struct Timed: Equatable, Sendable {
@@ -44,8 +43,7 @@ public struct MIDIClockSchedule: Sendable {
     }
 
     static let clocksPerBeat = 24
-    static let clocksPerSixteenth = 6
-    static let songPositions = 16_384
+    static let clocksPerBar = 4 * clocksPerBeat
     /// A receiver further than this many clocks from the playhead is restarted where the playhead is.
     static let jumpTolerance = 2.0
 
@@ -73,21 +71,28 @@ public struct MIDIClockSchedule: Sendable {
         let currentClock = anchorClock + (now - position.hostTime) / secondsPerClock
         func time(of clock: Int) -> Double { position.hostTime + (Double(clock) - anchorClock) * secondsPerClock }
 
-        if let next = nextClock.map(Double.init),
-           next < currentClock - Self.jumpTolerance || next > currentClock + lookahead / secondsPerClock + Self.jumpTolerance {
-            nextClock = nil
-            batch.flush = true
-            batch.messages.append(Timed(message: .stop, time: now))
+        func isInStep(_ clock: Int) -> Bool {
+            let clock = Double(clock)
+            return clock >= currentClock - Self.jumpTolerance && clock <= currentClock + lookahead / secondsPerClock + Self.jumpTolerance
+        }
+        if let next = nextClock, !isInStep(next) {
+            // The clocks already sent fall on the same beats in the bars the playhead jumped to.
+            let bars = Int(((currentClock - Double(next)) / Double(Self.clocksPerBar)).rounded())
+            if isInStep(next + bars * Self.clocksPerBar) {
+                nextClock = next + bars * Self.clocksPerBar
+            } else {
+                nextClock = nil
+                batch.flush = true
+                batch.messages.append(Timed(message: .stop, time: now))
+            }
         }
         var next: Int
         if let nextClock {
             next = nextClock
         } else {
-            let sixteenth = max(0, Int((currentClock / Double(Self.clocksPerSixteenth)).rounded(.up)))
-            let songPosition = sixteenth % Self.songPositions
-            batch.messages.append(Timed(message: .songPosition(songPosition), time: now))
-            batch.messages.append(Timed(message: songPosition == 0 ? .start : .continue, time: now))
-            next = sixteenth * Self.clocksPerSixteenth
+            next = max(0, Int((currentClock / Double(Self.clocksPerBar)).rounded(.up))) * Self.clocksPerBar
+            guard time(of: next) <= now + lookahead else { return batch }
+            batch.messages.append(Timed(message: .start, time: time(of: next)))
         }
         while time(of: next) <= now + lookahead {
             batch.messages.append(Timed(message: .clock, time: max(now, time(of: next))))
@@ -204,10 +209,7 @@ public final class MIDIClockSender: Sendable {
         switch message {
         case .clock: return systemMessage | 0xF8 << 16
         case .start: return systemMessage | 0xFA << 16
-        case .continue: return systemMessage | 0xFB << 16
         case .stop: return systemMessage | 0xFC << 16
-        case .songPosition(let sixteenth):
-            return systemMessage | 0xF2 << 16 | UInt32(sixteenth & 0x7F) << 8 | UInt32(sixteenth >> 7 & 0x7F)
         }
     }
 

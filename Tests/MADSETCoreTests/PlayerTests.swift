@@ -56,7 +56,8 @@ import Testing
         player.seek(to: 20)
         Thread.sleep(forTimeInterval: 0.2)
         #expect(try pull(engine, seconds: 1) > 0.1)
-        #expect(abs(player.currentTime - 21) < 0.05)
+        // Playing waits for audio from the new place; pulled faster than real time, that wait spans a few blocks.
+        #expect(player.currentTime <= 21 && player.currentTime > 20.85)
 
         // At 125 BPM, 21 s is bar 10.9375; at 140 BPM the same bar is 18.75 s in.
         let faster = SetLayout(bpm: 140, entries: [SetEntry(id: layout.entries[0].id, file: layout.entries[0].file)],
@@ -66,6 +67,26 @@ import Testing
         Thread.sleep(forTimeInterval: 0.2)
         _ = try pull(engine, seconds: 0.1)
         #expect(abs(player.currentTime / faster.barDuration - bar) < 0.1)
+    }
+
+    @Test func movingWhilePlayingGoesOnFromTheNextBarLineWithoutAGap() throws {
+        let (player, engine, layout) = try makePlayer()
+        try player.play()
+        _ = try pull(engine, seconds: 1)
+        let before = player.currentTime
+        let target = layout.time(ofBar: 10)
+        try player.move(to: target)
+        #expect(abs((player.pendingMove ?? 0) - target) < 1 / sampleRate)
+
+        let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1_024)!
+        for _ in 0..<Int(2 * sampleRate / 512) {
+            Thread.sleep(forTimeInterval: 0.002)
+            #expect(try engine.renderOffline(512, to: buffer) == .success)
+            #expect((0..<Int(buffer.frameLength)).contains { buffer.floatChannelData![0][$0] != 0 }, "A block went silent")
+        }
+        #expect(player.pendingMove == nil)
+        // Two more seconds heard: on to the end of bar 0, then from bar 10 on.
+        #expect(abs(player.currentTime - (target + before + 2 - layout.barDuration)) < 0.01)
     }
 
     @Test func resumesAfterTheOutputDeviceChanges() throws {

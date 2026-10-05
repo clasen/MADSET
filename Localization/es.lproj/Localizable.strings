@@ -34,6 +34,14 @@
 "Play" = "Reproducir";
 "Pause" = "Pausa";
 "Back to Start" = "Volver al inicio";
+"Preview" = "Pre-escuchar";
+"Play this transition on the monitor output, from a few bars before it, in time with the set (turns monitor mode on)" = "Escuchar esta transición por la salida de monitoreo, desde unos compases antes, a tiempo con el set (prende el modo monitor)";
+"Monitor Mode" = "Modo monitor";
+"Monitor" = "Monitor";
+"Main %@" = "Principal %@";
+"Monitor mode (M): play, pause and clicks on the ruler or the decks move a second head that plays through the monitor output, in time with the set, while the set goes on" = "Modo monitor (M): play, pausa y los clics en la regla o en los decks mueven un segundo cabezal que suena por la salida de monitoreo, a tiempo con el set, mientras el set sigue";
+"Choose a monitor output in Settings to preview transitions" = "Elegí una salida de monitoreo en Ajustes para pre-escuchar transiciones";
+"Choose a monitor output in Settings to preview the set." = "Elegí una salida de monitoreo en Ajustes para pre-escuchar el set.";
 
 /* Transport and inspector */
 "%@ / %@" = "%@ / %@";
@@ -163,15 +171,18 @@
 "Audio" = "Audio";
 "Main Output" = "Salida principal";
 "Monitor Output" = "Salida de monitoreo";
+"Channels" = "Canales";
+"Unavailable" = "No disponible";
+"%lld–%lld" = "%lld–%lld";
 "System Default" = "La del sistema";
 "None" = "Ninguna";
 "Disconnected Device" = "Dispositivo desconectado";
-"Nothing is cued to the monitor output yet." = "Por ahora no se pre-escucha nada en la salida de monitoreo.";
+"The monitor plays through the main output: everyone hears the previews." = "El monitor sale por la salida principal: la pre-escucha la oye todo el mundo.";
+"Previews of transitions ahead of the playhead play through the monitor output while the set goes on." = "Las transiciones que vienen se pre-escuchan por la salida de monitoreo mientras el set sigue sonando.";
 "Sync" = "Sincronización";
 "MIDI Clock Out" = "Salida de MIDI clock";
 "Offset" = "Desfase";
 "%lld ms" = "%lld ms";
-"Sends MIDI clock, start, stop and song position locked to the set's beats and bars, so a groovebox on that port plays in time with the kick. Raise the offset if the groovebox sounds early, lower it if it sounds late." = "Manda MIDI clock, start, stop y song position enganchados a los beats y compases del set, así una groovebox en ese puerto toca a tiempo con el kick. Subí el desfase si la groovebox suena adelantada, bajalo si suena atrasada.";
 "Device Problem" = "Problema con un dispositivo";
 "MIDI is not available: %@" = "MIDI no está disponible: %@";
 "Could not switch the output: %@" = "No se pudo cambiar la salida: %@";

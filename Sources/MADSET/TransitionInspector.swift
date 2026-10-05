@@ -82,6 +82,7 @@ struct TransitionInspector: View {
             }
         }
         Spacer()
+        MonitorButton(document: document, entry: placed.id)
         Button {
             var changes: [(Track.ID, (inout SetEntry) -> Void)] = [(placed.id, { entry in
                 entry.cueInBar = nil
@@ -103,6 +104,31 @@ struct TransitionInspector: View {
         }
         .buttonStyle(FieldButtonStyle())
         .help(String(localized: "Back to the automatic, phrase-aligned transition"))
+    }
+}
+
+/// Plays the transition into the track on the monitor, again from its lead-in on every press,
+/// turning monitor mode on.
+private struct MonitorButton: View {
+    let document: SetDocument
+    let entry: Track.ID
+
+    var body: some View {
+        let available = DeviceSettings.shared.hasMonitorOutput
+        let tint = Color(nsColor: Theme.monitor)
+        Button { document.previewTransition(into: entry) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "headphones").font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+                Text("Preview").textCase(.uppercase).font(.system(size: 11, weight: .bold)).tracking(0.6)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 26)
+        }
+        .buttonStyle(FieldButtonStyle())
+        .disabled(!available)
+        .help(available
+            ? String(localized: "Play this transition on the monitor output, from a few bars before it, in time with the set (turns monitor mode on)")
+            : String(localized: "Choose a monitor output in Settings to preview transitions"))
     }
 }
 

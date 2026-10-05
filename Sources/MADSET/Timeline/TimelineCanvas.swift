@@ -23,9 +23,12 @@ import MADSETCore
 /// - Right-click a clip to split it there into two tracks, at the nearest phrase (⌥ bar).
 /// - Right-click a clip to remove it, or the selection it belongs to, from the set; ⌘⌫ removes the
 ///   selection (see `ContentView`).
-/// - Drag the BASS marker to move the bass swap; click the ruler to move the playhead.
-/// - While playing, the view pages along with the playhead if `followsPlayhead`. Scrolling or zooming
-///   the playhead out of view turns that off; turning it on brings the playhead back into view.
+/// - Drag the BASS marker to move the bass swap.
+/// - Click or drag along the ruler to move the playhead, or the monitor head in monitor mode: it
+///   follows the pointer bar by bar and moves when the pointer comes up. While playing, a faint
+///   mark shows where it goes on from until it gets there, at its next bar line.
+/// - While playing, the view pages along with the playhead (the monitor head in monitor mode) if
+///   `followsPlayhead`. Scrolling or zooming it out of view turns that off; turning it on brings it back into view.
 final class TimelineCanvas: NSView {
     var clips: [TimelineClip] = [] {
         didSet {
@@ -55,8 +58,12 @@ final class TimelineCanvas: NSView {
     var arrange: (ArrangementEdit) -> [TimelineClip] = { _ in [] }
     var onSeek: (TimeInterval) -> Void = { _ in }
     var playhead: () -> (time: TimeInterval, isPlaying: Bool) = { (0, false) }
+    /// The monitor head while monitor mode is on, else nil.
+    var monitorHead: () -> (time: TimeInterval, isPlaying: Bool)? = { nil }
+    /// Where the playhead and the monitor head go on from at their next bar line, while they wait to.
+    var pendingHeads: () -> (playhead: TimeInterval?, monitorHead: TimeInterval?) = { (nil, nil) }
     var followsPlayhead = true {
-        didSet { if followsPlayhead, !oldValue { followPlayhead(to: playhead().time) } }
+        didSet { if followsPlayhead, !oldValue { followPlayhead(to: followedHead.time) } }
     }
     var onFollowsPlayheadChange: (Bool) -> Void = { _ in }
 
@@ -80,6 +87,8 @@ final class TimelineCanvas: NSView {
     private var preview: [TimelineClip]?
     private var displayLink: CADisplayLink?
     private var drawnPlayhead: TimeInterval = 0
+    private var drawnMonitorHead: (time: TimeInterval, isPlaying: Bool)?
+    private var drawnPendingHeads: (playhead: TimeInterval?, monitorHead: TimeInterval?) = (nil, nil)
 
     /// The clips as drawn: the arrangement, or what the drag in progress would make of it.
     private var shown: [TimelineClip] { preview ?? clips }
@@ -89,6 +98,9 @@ final class TimelineCanvas: NSView {
         /// selection if the pointer comes up without dragging.
         case reorder(id: Track.ID, ids: Set<Track.ID>, startX: CGFloat, offset: CGFloat, toggles: Bool)
         case adjust(Adjustment, startX: CGFloat, edit: ArrangementEdit?)
+        /// Moves the playhead (the monitor head in monitor mode) along the ruler, bar by bar; it is
+        /// moved there when the pointer comes up.
+        case cueHead(TimeInterval)
     }
 
     /// A value of the arrangement a drag changes, with the placement it had when the drag began.
@@ -260,16 +272,44 @@ final class TimelineCanvas: NSView {
         displayLink = link
     }
 
+    /// The monitor head in monitor mode, else the playhead.
+    private var followedHead: (time: TimeInterval, isPlaying: Bool) { monitorHead() ?? playhead() }
+
     @objc private func advancePlayhead() {
-        let (time, isPlaying) = playhead()
-        guard time != drawnPlayhead else { return }
-        if isPlaying, followsPlayhead, gesture == nil, followPlayhead(to: time) {
-            needsDisplay = true
-        } else {
+        advanceMonitorHead()
+        advancePendingHeads()
+        var time = playhead().time
+        if case .cueHead(let cued) = gesture, monitorHead() == nil { time = cued }
+        if time != drawnPlayhead {
             setNeedsDisplay(playheadRect(at: drawnPlayhead))
             setNeedsDisplay(playheadRect(at: time))
+            drawnPlayhead = time
         }
-        drawnPlayhead = time
+        let followed = followedHead
+        if followed.isPlaying, followsPlayhead, gesture == nil { followPlayhead(to: followed.time) }
+    }
+
+    /// The heads stay where the ruler drag holds them until they are moved there.
+    private func advanceMonitorHead() {
+        var head = monitorHead()
+        if case .cueHead(let time) = gesture, let playing = head?.isPlaying { head = (time, playing) }
+        guard head?.time != drawnMonitorHead?.time || head?.isPlaying != drawnMonitorHead?.isPlaying else { return }
+        for time in [drawnMonitorHead?.time, head?.time].compactMap({ $0 }) { setNeedsDisplay(playheadRect(at: time)) }
+        drawnMonitorHead = head
+    }
+
+    private func advancePendingHeads() {
+        let pending = pendingHeads()
+        guard pending.playhead != drawnPendingHeads.playhead || pending.monitorHead != drawnPendingHeads.monitorHead else { return }
+        let times = [drawnPendingHeads.playhead, drawnPendingHeads.monitorHead, pending.playhead, pending.monitorHead]
+        for time in times.compactMap({ $0 }) { setNeedsDisplay(playheadRect(at: time)) }
+        drawnPendingHeads = pending
+    }
+
+    /// The start of the bar nearest `x`.
+    private func barTime(at x: CGFloat) -> TimeInterval {
+        guard let barDuration = clips.first?.barDuration else { return max(0, time(for: x)) }
+        return max(0, (time(for: x) / barDuration).rounded() * barDuration)
     }
 
     /// Pages the view so `time` is near its left edge if it is out of view or close to the right edge;
@@ -285,7 +325,7 @@ final class TimelineCanvas: NSView {
 
     /// Moving the view away from the playhead while playing means the user wants to look elsewhere.
     private func stopFollowingIfPlayheadLeft() {
-        let (time, isPlaying) = playhead()
+        let (time, isPlaying) = followedHead
         guard isPlaying, followsPlayhead, !(0...bounds.width).contains(x(for: time)) else { return }
         followsPlayhead = false
         onFollowsPlayheadChange(false)
@@ -317,7 +357,7 @@ final class TimelineCanvas: NSView {
         hoveredTransition = nil
         let point = convert(event.locationInWindow, from: nil)
         if point.y < Self.rulerHeight {
-            onSeek(max(0, time(for: point.x)))
+            gesture = .cueHead(barTime(at: point.x))
             return
         }
         let clips = shown
@@ -373,6 +413,9 @@ final class TimelineCanvas: NSView {
             let edit = adjustment.edit(movedBars: bars)
             gesture = .adjust(adjustment, startX: startX, edit: edit)
             preview = edit.map(arrange)
+        case .cueHead:
+            gesture = .cueHead(barTime(at: x))
+            return
         case nil:
             return
         }
@@ -393,6 +436,8 @@ final class TimelineCanvas: NSView {
         case .adjust(_, _, let edit?):
             // The preview stays up until the edited clips arrive, so the drop does not flicker.
             onEdit(edit)
+        case .cueHead(let time):
+            onSeek(time)
         default:
             preview = nil
         }
@@ -577,7 +622,12 @@ final class TimelineCanvas: NSView {
             CGRect(x: markerX - 1.5, y: Self.rulerHeight, width: 3, height: bounds.height - Self.rulerHeight).fill()
             for clip in shown where ids.contains(clip.id) { drawClip(clip, in: context, dirtyRect: dirtyRect, alpha: 0.9) }
         }
-        drawPlayhead(dirtyRect)
+        if let time = drawnPendingHeads.playhead { drawPendingHead(at: time, color: Theme.playhead, dirtyRect) }
+        if let time = drawnPendingHeads.monitorHead { drawPendingHead(at: time, color: Theme.monitor, dirtyRect) }
+        if let head = drawnMonitorHead {
+            drawHead(at: head.time, color: Theme.monitor.withAlphaComponent(head.isPlaying ? 1 : 0.55), dirtyRect)
+        }
+        drawHead(at: drawnPlayhead, color: Theme.playhead, dirtyRect)
     }
 
     /// Draws every transition's handle as a grey pill with a grip; the one under the pointer or being
@@ -617,10 +667,30 @@ final class TimelineCanvas: NSView {
         }
     }
 
-    private func drawPlayhead(_ dirtyRect: CGRect) {
-        let px = x(for: drawnPlayhead)
+    /// A dashed line and an open marker where a head goes on from once it gets to its next bar line.
+    private func drawPendingHead(at time: TimeInterval, color: NSColor, _ dirtyRect: CGRect) {
+        let px = x(for: time)
         guard px >= dirtyRect.minX - 6, px <= dirtyRect.maxX + 6 else { return }
-        Theme.playhead.setFill()
+        color.withAlphaComponent(0.45).setStroke()
+        let line = NSBezierPath()
+        line.move(to: CGPoint(x: px, y: 7))
+        line.line(to: CGPoint(x: px, y: bounds.height))
+        line.lineWidth = 1
+        line.setLineDash([3, 3], count: 2, phase: 0)
+        line.stroke()
+        let triangle = NSBezierPath()
+        triangle.move(to: CGPoint(x: px - 4.5, y: 0.5))
+        triangle.line(to: CGPoint(x: px + 4.5, y: 0.5))
+        triangle.line(to: CGPoint(x: px, y: 7))
+        triangle.close()
+        triangle.lineWidth = 1
+        triangle.stroke()
+    }
+
+    private func drawHead(at time: TimeInterval, color: NSColor, _ dirtyRect: CGRect) {
+        let px = x(for: time)
+        guard px >= dirtyRect.minX - 6, px <= dirtyRect.maxX + 6 else { return }
+        color.setFill()
         CGRect(x: px - 0.75, y: 0, width: 1.5, height: bounds.height).fill()
         let triangle = NSBezierPath()
         triangle.move(to: CGPoint(x: px - 5, y: 0))

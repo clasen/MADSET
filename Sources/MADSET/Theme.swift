@@ -18,6 +18,8 @@ enum Theme {
     static let waveHigh = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.91, alpha: 0.85)
     static let kick = NSColor(srgbRed: 1.0, green: 0.26, blue: 0.42, alpha: 0.9)
     static let playhead = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.2, alpha: 1)
+    /// The monitor head and the controls that preview through the monitor output.
+    static let monitor = NSColor(srgbRed: 0.25, green: 0.92, blue: 0.82, alpha: 1)
     static let swap = NSColor(srgbRed: 0.98, green: 0.62, blue: 0.16, alpha: 1)
 
     /// Surfaces of the SwiftUI panels around the timeline, from the window down to raised controls.
