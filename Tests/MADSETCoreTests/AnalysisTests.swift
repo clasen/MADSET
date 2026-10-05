@@ -18,6 +18,19 @@ private let config = AppConfig.current.analysis
         #expect(abs(phaseError) < 0.012)
     }
 
+    @Test func placesSlowlySwellingKicksAtTheirAttack() throws {
+        let bpm = 122.0, leadIn = 0.4
+        let samples = Synth.track(bpm: bpm, bars: 48, leadIn: leadIn) { _ in [.swellingKick, .hats] }
+        let analysis = try TrackAnalyzer.analyze(samples: samples, needsKey: false, config: config)
+
+        let beat = 60 / bpm
+        var phaseError = (analysis.grid.firstDownbeat - leadIn).truncatingRemainder(dividingBy: beat)
+        if phaseError > beat / 2 { phaseError -= beat }
+        if phaseError < -beat / 2 { phaseError += beat }
+        // The swell still drags the attack estimate later; the last step of it lies ~70 ms in.
+        #expect(abs(phaseError) < 0.05)
+    }
+
     @Test func silenceHasNoTempo() {
         let silence = [Float](repeating: 0, count: Int(30 * Synth.sampleRate))
         #expect(throws: BeatTracker.Failure.self) {

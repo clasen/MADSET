@@ -24,7 +24,8 @@ final class SetDocument: ReferenceFileDocument {
     private(set) var tempo: Double? {
         didSet { storeSaved() }
     }
-    var selection: Track.ID?
+    /// Selected tracks, shared by the list and the timeline.
+    var selection: Set<Track.ID> = []
     private(set) var isPlaying = false
     /// Tracks under the playhead, playing or paused.
     private(set) var nowPlaying: Set<Track.ID> = []
@@ -156,15 +157,20 @@ final class SetDocument: ReferenceFileDocument {
         perform(String(localized: "Reorder")) { $0.tracks.move(fromOffsets: source, toOffset: destination) }
     }
 
-    /// Moves a track right before `target`, or to the end when `target` is nil.
-    func move(_ id: Track.ID, before target: Track.ID?) {
-        guard id != target, tracks.contains(where: { $0.id == id }) else { return }
-        perform(String(localized: "Reorder")) { document in
-            let from = document.tracks.firstIndex { $0.id == id }!
-            let track = document.tracks.remove(at: from)
-            let index = target.flatMap { t in document.tracks.firstIndex { $0.id == t } } ?? document.tracks.count
-            document.tracks.insert(track, at: index)
-        }
+    /// Moves `ids` right before `target`, or to the end when `target` is nil, keeping their order.
+    func move(_ ids: Set<Track.ID>, before target: Track.ID?) {
+        let source = IndexSet(tracks.indices.filter { ids.contains(tracks[$0].id) })
+        guard !source.isEmpty, target.map({ !ids.contains($0) }) ?? true else { return }
+        let destination = target.flatMap { t in tracks.firstIndex { $0.id == t } } ?? tracks.count
+        var moved = tracks
+        moved.move(fromOffsets: source, toOffset: destination)
+        guard moved.map(\.id) != tracks.map(\.id) else { return }
+        perform(String(localized: "Reorder")) { $0.tracks = moved }
+    }
+
+    /// Moves `ids` to the start of the set, keeping their order.
+    func moveToStart(_ ids: Set<Track.ID>) {
+        move(ids, before: tracks.first { !ids.contains($0.id) }?.id)
     }
 
     /// Splits an analyzed track at one of its own bars into two that play one after the other and
@@ -177,12 +183,13 @@ final class SetDocument: ReferenceFileDocument {
             second.entry = document.tracks[index].entry.split(atBar: bar)
             document.tracks.insert(second, at: index + 1)
         }
-        selection = second.id
+        selection = [second.id]
     }
 
-    func remove(_ id: Track.ID) {
-        perform(String(localized: "Remove Track")) { $0.tracks.removeAll { $0.id == id } }
-        if selection == id { selection = nil }
+    func remove(_ ids: Set<Track.ID>) {
+        guard tracks.contains(where: { ids.contains($0.id) }) else { return }
+        perform(ids.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove Tracks")) { $0.tracks.removeAll { ids.contains($0.id) } }
+        selection.subtract(ids)
     }
 
     func setTempo(_ bpm: Double?) {
@@ -256,7 +263,11 @@ final class SetDocument: ReferenceFileDocument {
             player.pause()
         } else {
             if player.currentTime >= layout.duration { player.seek(to: 0) }
-            player.play()
+            do {
+                try player.play()
+            } catch {
+                playbackError = error.localizedDescription
+            }
         }
         isPlaying = player.isPlaying
     }

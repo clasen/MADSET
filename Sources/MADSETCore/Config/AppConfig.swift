@@ -43,10 +43,16 @@ public struct AppConfig: Sendable {
         public var folderName: String
     }
 
+    public struct Library: Sendable {
+        /// Seconds file changes in the sets folder are gathered before the sidebar reloads.
+        public var watchLatency: Double
+    }
+
     public var analysis: Analysis
     public var playback: Playback
     public var export: Export
     public var cache: Cache
+    public var library: Library
 
     public static let current = AppConfig(
         analysis: Analysis(
@@ -66,6 +72,7 @@ public struct AppConfig: Sendable {
             emptySetBPM: 124
         ),
         export: Export(wavBitDepth: 24, aacBitRate: 256_000),
-        cache: Cache(folderName: "MADSET/analysis")
+        cache: Cache(folderName: "MADSET/analysis"),
+        library: Library(watchLatency: 0.3)
     )
 }

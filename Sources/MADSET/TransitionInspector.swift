@@ -2,7 +2,7 @@ import AppKit
 import MADSETCore
 import SwiftUI
 
-/// Edits the transition into the selected track, and where the track starts and ends.
+/// Edits the transition into the selected track, and where the track starts and ends, while a single track is selected.
 /// Automatic values follow the phases.
 struct TransitionInspector: View {
     let document: SetDocument
@@ -10,9 +10,13 @@ struct TransitionInspector: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
-            if let index = layout.entries.firstIndex(where: { $0.id == document.selection }),
-               let track = document.tracks.first(where: { $0.id == document.selection }) {
+            if document.selection.count == 1, let id = document.selection.first,
+               let index = layout.entries.firstIndex(where: { $0.id == id }),
+               let track = document.tracks.first(where: { $0.id == id }) {
                 editor(index: index, title: track.title)
+            } else if document.selection.count > 1 {
+                Text("\(document.selection.count) tracks selected").foregroundStyle(.secondary)
+                Spacer()
             } else {
                 Text("Select a track to edit its transition").foregroundStyle(.secondary)
                 Spacer()
@@ -50,16 +54,16 @@ struct TransitionInspector: View {
             }
             HStack(spacing: 8) {
                 BarStepper(title: "Bass swap", icon: "arrow.up.arrow.down", tint: Color(nsColor: Theme.swap), unit: .position,
-                           value: placed.bassSwapBar, step: 1, range: 0...placed.overlapBars) { value in
+                           value: placed.bassSwapBar, step: 1, wheelStep: 2, range: 0...placed.overlapBars) { value in
                     document.edit(placed.id, String(localized: "Move Bass Swap")) { $0.bassSwapBar = value }
                 }
                 BarStepper(title: "Fade in", icon: "chart.line.uptrend.xyaxis", unit: .length,
-                           value: placed.fadeInBars, step: 1, range: 0...placed.overlapBars) { value in
+                           value: placed.fadeInBars, step: 1, wheelStep: 2, range: 0...placed.overlapBars) { value in
                     document.edit(placed.id, String(localized: "Change Fade In")) { $0.fadeInBars = value }
                 }
                 .help(String(localized: "Bars this track takes to reach full volume, from the start of the transition."))
                 BarStepper(title: "Fade out", icon: "chart.line.downtrend.xyaxis", unit: .length,
-                           value: placed.fadeOutBars, step: 1, range: 0...placed.overlapBars) { value in
+                           value: placed.fadeOutBars, step: 1, wheelStep: 2, range: 0...placed.overlapBars) { value in
                     document.edit(placed.id, String(localized: "Change Fade Out")) { $0.fadeOutBars = value }
                 }
                 .help(String(localized: "Bars the previous track takes to fade out, ending with the transition."))
@@ -103,7 +107,7 @@ struct TransitionInspector: View {
 }
 
 /// A bar value with arrows that step it by `step`, clamped to `range`. The scroll wheel over it
-/// steps it too: up or away increases.
+/// steps it too, by `wheelStep` if set: up or away increases.
 private struct BarStepper: View {
     /// A bar of the track (shown as "bar 12") or a number of bars ("12 bars").
     enum Unit { case position, length }
@@ -114,6 +118,8 @@ private struct BarStepper: View {
     let unit: Unit
     let value: Int
     let step: Int
+    /// Coarser step for the scroll wheel, landing on its multiples; the arrows still reach the values between.
+    var wheelStep: Int?
     let range: ClosedRange<Int>
     let set: (Int) -> Void
 
@@ -143,7 +149,7 @@ private struct BarStepper: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .background(ScrollWheelSteps { move(by: $0) })
+        .background(ScrollWheelSteps { wheel(by: $0) })
     }
 
     private static let shape = RoundedRectangle(cornerRadius: 6)
@@ -168,7 +174,18 @@ private struct BarStepper: View {
     }
 
     private func move(by steps: Int) {
-        let target = (value + steps * step).clamped(to: range)
+        moveTo(value + steps * step)
+    }
+
+    private func wheel(by steps: Int) {
+        guard let wheelStep else { return move(by: steps) }
+        // From a value between multiples, the first step lands on the next multiple in that direction.
+        let multiple = steps > 0 ? value / wheelStep : (value + wheelStep - 1) / wheelStep
+        moveTo((multiple + steps) * wheelStep)
+    }
+
+    private func moveTo(_ bar: Int) {
+        let target = bar.clamped(to: range)
         if target != value { set(target) }
     }
 

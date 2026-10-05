@@ -41,7 +41,7 @@ import Testing
         #expect(try pull(engine, seconds: 0.5) == 0)
         #expect(player.currentTime == 0)
 
-        player.play()
+        try player.play()
         #expect(try pull(engine, seconds: 2) > 0.1)
         #expect(abs(player.currentTime - 2) < 0.05)
 
@@ -52,7 +52,7 @@ import Testing
 
     @Test func seeksAndKeepsPositionAcrossTempoChanges() throws {
         let (player, engine, layout) = try makePlayer()
-        player.play()
+        try player.play()
         player.seek(to: 20)
         Thread.sleep(forTimeInterval: 0.2)
         #expect(try pull(engine, seconds: 1) > 0.1)
@@ -66,5 +66,20 @@ import Testing
         Thread.sleep(forTimeInterval: 0.2)
         _ = try pull(engine, seconds: 0.1)
         #expect(abs(player.currentTime / faster.barDuration - bar) < 0.1)
+    }
+
+    @Test func resumesAfterTheOutputDeviceChanges() throws {
+        let (player, engine, _) = try makePlayer()
+        try player.play()
+        #expect(try pull(engine, seconds: 0.5) > 0.1)
+
+        engine.stop()
+        NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
+        #expect(engine.isRunning)
+        #expect(try pull(engine, seconds: 0.5) > 0.1)
+
+        engine.stop()
+        try player.play()
+        #expect(engine.isRunning)
     }
 }

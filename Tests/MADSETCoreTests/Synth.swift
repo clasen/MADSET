@@ -4,7 +4,7 @@ import Foundation
 enum Synth {
     static let sampleRate = 22_050.0
 
-    enum Layer { case kick, bass, hats, pad, riser }
+    enum Layer { case kick, swellingKick, bass, hats, pad, riser }
 
     /// A 4/4 track of `bars` bars where `layers(bar)` decides what plays in each bar.
     static func track(bpm: Double, bars: Int, leadIn: Double = 0, layers: (Int) -> Set<Layer>) -> [Float] {
@@ -30,6 +30,7 @@ enum Synth {
             for b in 0..<4 {
                 let t = barStart + Double(b) * beat
                 if active.contains(.kick) { addKick(&x, at: t) }
+                if active.contains(.swellingKick) { addSwellingKick(&x, at: t) }
                 if active.contains(.bass) { addBass(&x, at: t + beat / 2) }
                 if active.contains(.hats) { addNoiseBurst(&x, at: t + beat / 2, duration: 0.02, gain: 0.15, noise: &noise) }
             }
@@ -45,6 +46,19 @@ enum Synth {
             let frequency = 45 + 105 * exp(-time / 0.03)
             phase += 2 * Double.pi * frequency / sampleRate
             x[start + i] += Float(0.9 * sin(phase) * exp(-time / 0.08))
+        }
+    }
+
+    /// A kick whose sub then swells in two steps over 70 ms: its sub-band rise peaks several
+    /// times, the last one long after the attack.
+    static func addSwellingKick(_ x: inout [Float], at t: Double) {
+        addKick(&x, at: t)
+        let start = Int(t * sampleRate)
+        for i in 0..<Int(0.35 * sampleRate) where start + i < x.count {
+            let time = Double(i) / sampleRate
+            let steps = zip([0.03, 0.07], [0.75, 0.25]).map { onset, size in size * min(1, max(0, (time - onset) / 0.005)) }
+            let swell = 0.9 * steps.reduce(0, +) * (time > 0.2 ? exp(-(time - 0.2) / 0.1) : 1)
+            x[start + i] += Float(swell * sin(2 * Double.pi * 48 * time))
         }
     }
 

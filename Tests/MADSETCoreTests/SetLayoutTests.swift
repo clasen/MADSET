@@ -171,6 +171,34 @@ import Testing
         #expect(earliest.cueIn == -15)
     }
 
+    @Test func takesTheIncomingTrackAlongPastItsSilence() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 96, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[0].cueOutBar = 96
+        entries[1].cueInBar = -15
+        entries[1].overlapBars = 16
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming) = (before.entries[0], before.entries[1])
+
+        // The incoming track has no silence left to give, so it moves with the transition.
+        let (cueOut, cueIn) = incoming.movingTransition(by: -8, after: outgoing)
+        #expect(cueOut == 88 && cueIn == -15)
+        entries[0].cueOutBar = cueOut
+        entries[1].cueInBar = cueIn
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        #expect(after.entries[1].startBar == incoming.startBar - 8)
+        #expect(after.entries[2].startBar == before.entries[2].startBar - 8)
+
+        // The outgoing track keeps a bar of its own before the transition.
+        let earliest = incoming.movingTransition(by: -1000, after: outgoing)
+        #expect(earliest.previousCueOut == outgoing.cueInBar + 1 + 16 && earliest.cueIn == -15)
+    }
+
     @Test func resizesTheTransitionOnBothSidesWithoutMovingTheTracks() {
         let a = UUID(), b = UUID(), c = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [

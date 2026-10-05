@@ -195,12 +195,14 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
 
     /// Moves the transition from `previous` `bars` later without moving either track in the set: the
     /// previous track plays that much longer and this one starts that much further into itself. Each
-    /// keeps at least one bar of its own outside the transition and a bar of its audio in it.
+    /// keeps at least one bar of its own outside the transition and a bar of its audio in it. Moved
+    /// earlier than this track's silence allows, the transition takes the track along: the previous
+    /// track ends earlier and this one keeps its cue in.
     public func movingTransition(by bars: Int, after previous: PlacedEntry) -> (previousCueOut: Int, cueIn: Int) {
-        let earliest = min(0, max(previous.cueInBar + 1 - mixInBar(after: previous), -silenceLimit - cueInBar))
+        let earliest = min(0, previous.cueInBar + 1 - mixInBar(after: previous))
         let latest = max(0, min(previous.barCount + silenceLimit - previous.cueOutBar, cueOutBar - 1 - overlapBars - cueInBar))
         let shift = bars.clamped(to: earliest...latest)
-        return (previous.cueOutBar + shift, cueInBar + shift)
+        return (previous.cueOutBar + shift, cueInBar + max(shift, min(0, -silenceLimit - cueInBar)))
     }
 }
 

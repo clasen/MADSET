@@ -10,7 +10,7 @@ struct MADSETApp: App {
 
     var body: some Scene {
         DocumentGroup(newDocument: { SetDocument() }) { file in
-            ContentView(document: file.document)
+            ContentView(document: file.document, fileURL: file.fileURL)
                 .preferredColorScheme(.dark)
         }
         .defaultSize(width: 1500, height: 880)

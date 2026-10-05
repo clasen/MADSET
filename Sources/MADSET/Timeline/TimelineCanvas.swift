@@ -7,16 +7,22 @@ import MADSETCore
 /// - Scroll pans; ⌘/⌥-scroll or pinch zooms around the pointer.
 /// - Drag a transition (where two clips overlap) to move it while both tracks stay where they are:
 ///   the outgoing track plays longer or shorter and the incoming one starts further in or earlier.
-///   Dragging the first clip moves its transition out.
+///   Past the incoming track's silence, dragging earlier takes the incoming track along.
+///   Dragging the first clip moves its transition out. Each transition has its own handle across
+///   the gap between the lanes, which lights up under the pointer.
 /// - Drag any other clip to move it under its transition in, which stays where it is: a different
 ///   part of the track plays in it.
 /// - Drag a clip's leading or trailing edge to trim its start or end, which shortens or lengthens
 ///   its transition without moving either track or the bass swap.
 ///   Transitions snap to phrases, ⌥ to bars; they may run into silence before or after a track's
 ///   audio as long as both tracks play in them.
-/// - ⌘-drag a clip, or drag the first one when it is alone, to reorder.
+/// - ⌘-click a clip to add it to the selection or take it out; ⇧-click selects every clip from the
+///   last one clicked.
+/// - ⌘-drag a clip, or drag the first one when it is alone, to reorder; ⌘-dragging a selected clip
+///   moves the whole selection.
 /// - Right-click a clip to split it there into two tracks, at the nearest phrase (⌥ bar).
-/// - Right-click a clip to remove its track from the set; ⌘⌫ does it for the selection (see `ContentView`).
+/// - Right-click a clip to remove it, or the selection it belongs to, from the set; ⌘⌫ removes the
+///   selection (see `ContentView`).
 /// - Drag the BASS marker to move the bass swap; click the ruler to move the playhead.
 /// - While playing, the view pages along with the playhead if `followsPlayhead`. Scrolling or zooming
 ///   the playhead out of view turns that off; turning it on brings the playhead back into view.
@@ -30,21 +36,21 @@ final class TimelineCanvas: NSView {
         }
     }
 
-    var selectedID: Track.ID? {
+    var selectedIDs: Set<Track.ID> = [] {
         didSet {
-            guard selectedID != oldValue else { return }
+            guard selectedIDs != oldValue else { return }
             if !isSelectingFromCanvas { revealSelection() }
             needsDisplay = true
         }
     }
 
     var fitRequest = 0
-    var onSelect: (Track.ID?) -> Void = { _ in }
-    var onMove: (Track.ID, _ before: Track.ID?) -> Void = { _, _ in }
+    var onSelect: (Set<Track.ID>) -> Void = { _ in }
+    var onMove: (Set<Track.ID>, _ before: Track.ID?) -> Void = { _, _ in }
     var onEdit: (ArrangementEdit) -> Void = { _ in }
     /// Splits a track at one of its own bars.
     var onSplit: (Track.ID, _ bar: Int) -> Void = { _, _ in }
-    var onRemove: (Track.ID) -> Void = { _ in }
+    var onRemove: (Set<Track.ID>) -> Void = { _ in }
     /// The clips an edit would leave, to preview a drag before it is committed.
     var arrange: (ArrangementEdit) -> [TimelineClip] = { _ in [] }
     var onSeek: (TimeInterval) -> Void = { _ in }
@@ -59,7 +65,18 @@ final class TimelineCanvas: NSView {
     private var pointsPerSecond: Double = 1 { didSet { window?.invalidateCursorRects(for: self) } }
     private var userHasNavigated = false
     private var isSelectingFromCanvas = false
+    /// The clip ⇧-click selects from.
+    private var selectionAnchor: Track.ID?
     private var gesture: Gesture?
+    /// The incoming track of the transition whose handle is under the pointer.
+    private var hoveredTransition: Track.ID? {
+        didSet {
+            guard hoveredTransition != oldValue else { return }
+            for id in [oldValue, hoveredTransition] {
+                if let clip = shown.first(where: { $0.id == id }), let bridge = bridgeRect(for: clip) { setNeedsDisplay(bridge) }
+            }
+        }
+    }
     private var preview: [TimelineClip]?
     private var displayLink: CADisplayLink?
     private var drawnPlayhead: TimeInterval = 0
@@ -68,7 +85,9 @@ final class TimelineCanvas: NSView {
     private var shown: [TimelineClip] { preview ?? clips }
 
     private enum Gesture {
-        case reorder(id: Track.ID, startX: CGFloat, offset: CGFloat)
+        /// Drags `ids` along with the clip under the pointer, `id`. `toggles` takes `id` out of the
+        /// selection if the pointer comes up without dragging.
+        case reorder(id: Track.ID, ids: Set<Track.ID>, startX: CGFloat, offset: CGFloat, toggles: Bool)
         case adjust(Adjustment, startX: CGFloat, edit: ArrangementEdit?)
     }
 
@@ -107,7 +126,7 @@ final class TimelineCanvas: NSView {
             case .transition(let entry, let previous):
                 let (cueOut, cueIn) = entry.movingTransition(by: bars, after: previous)
                 let overlap = entry.overlapBars
-                return cueIn == entry.cueInBar ? nil
+                return cueOut == previous.cueOutBar ? nil
                     : ArrangementEdit(name: String(localized: "Move Transition"), changes: [
                         (previous.id, { $0.cueOutBar = cueOut }),
                         (entry.id, {
@@ -148,8 +167,11 @@ final class TimelineCanvas: NSView {
     private static let zoomRange: ClosedRange<Double> = 0.02...400
     private static let dragThreshold: CGFloat = 4
     private static let markerHitWidth: CGFloat = 6
+    private static let minBridgeWidth: CGFloat = 6
     /// Transitions narrower than this draw only their shading: markers and curves would be clutter.
     private static let detailedTransitionWidth: CGFloat = 40
+    /// How much darker the grey waveform of the parts of a track that don't play in the set is, 0...1.
+    private static let unheardDimming: CGFloat = 0.4
 
     private var phraseBars: Int { AppConfig.current.analysis.phraseBars }
 
@@ -184,9 +206,11 @@ final class TimelineCanvas: NSView {
         needsDisplay = true
     }
 
+    /// Brings the first selected clip into view unless some selected clip already is.
     private func revealSelection() {
-        guard let clip = shown.first(where: { $0.id == selectedID }) else { return }
-        guard clip.start < time(for: 0) || clip.end > time(for: bounds.width) else { return }
+        let selected = shown.filter { selectedIDs.contains($0.id) }
+        guard let clip = selected.first,
+              !selected.contains(where: { $0.end > time(for: 0) && $0.start < time(for: bounds.width) }) else { return }
         origin = clip.duration < visibleSpan * 0.9 ? clip.center - visibleSpan / 2 : clip.start - visibleSpan * 0.05
         needsDisplay = true
     }
@@ -273,8 +297,24 @@ final class TimelineCanvas: NSView {
 
     // MARK: - Mouse
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        hoveredTransition = shown.last { bridgeRect(for: $0)?.contains(point) == true }?.id
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredTransition = nil
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        hoveredTransition = nil
         let point = convert(event.locationInWindow, from: nil)
         if point.y < Self.rulerHeight {
             onSeek(max(0, time(for: point.x)))
@@ -284,11 +324,22 @@ final class TimelineCanvas: NSView {
         let edge = clips.indices.last { leadingEdgeRect(for: clips[$0])?.contains(point) == true }
         let trailingEdge = clips.indices.last { trailingEdgeRect(for: clips[$0]).contains(point) }
         guard let index = edge ?? trailingEdge ?? clips.lastIndex(where: { rect(for: $0).contains(point) }) ?? transitionIndex(at: point) else {
-            select(nil)
+            select([])
             return
         }
         let clip = clips[index]
-        select(clip.id)
+        if event.modifierFlags.contains(.shift) {
+            let anchor = selectionAnchor.flatMap { id in clips.firstIndex { $0.id == id } } ?? index
+            select(selectedIDs.union(clips[min(anchor, index)...max(anchor, index)].map(\.id)), anchor: selectionAnchor ?? clip.id)
+            return
+        }
+        if event.modifierFlags.contains(.command) {
+            let wasSelected = selectedIDs.contains(clip.id)
+            select(selectedIDs.union([clip.id]), anchor: clip.id)
+            gesture = .reorder(id: clip.id, ids: selectedIDs, startX: point.x, offset: 0, toggles: wasSelected)
+            return
+        }
+        select([clip.id], anchor: clip.id)
         if event.clickCount == 2 {
             zoomToTransition(of: clip)
             return
@@ -300,12 +351,10 @@ final class TimelineCanvas: NSView {
             gesture = .adjust(.trimStart(clip.placed, previous: clips[index - 1].placed), startX: point.x, edit: nil)
         } else if trailingEdge != nil {
             gesture = .adjust(.trimEnd(clip.placed, next: clip.next), startX: point.x, edit: nil)
-        } else if event.modifierFlags.contains(.command) {
-            gesture = .reorder(id: clip.id, startX: point.x, offset: 0)
         } else if let incoming = transitionIndex(at: point) ?? (clip.isFirst && clips.count > 1 ? 1 : nil) {
             gesture = .adjust(.transition(clips[incoming].placed, previous: clips[incoming - 1].placed), startX: point.x, edit: nil)
         } else if clip.isFirst {
-            gesture = .reorder(id: clip.id, startX: point.x, offset: 0)
+            gesture = .reorder(id: clip.id, ids: [clip.id], startX: point.x, offset: 0, toggles: false)
         } else {
             gesture = .adjust(.slide(clip.placed, previous: clips[index - 1].placed), startX: point.x, edit: nil)
         }
@@ -314,9 +363,10 @@ final class TimelineCanvas: NSView {
     override func mouseDragged(with event: NSEvent) {
         let x = convert(event.locationInWindow, from: nil).x
         switch gesture {
-        case .reorder(let id, let startX, _):
-            gesture = .reorder(id: id, startX: startX, offset: x - startX)
+        case .reorder(let id, let ids, let startX, _, let toggles):
+            gesture = .reorder(id: id, ids: ids, startX: startX, offset: x - startX, toggles: toggles)
         case .adjust(let adjustment, let startX, _):
+            if case .transition = adjustment { NSCursor.closedHand.set() }
             let barWidth = CGFloat((clips.first?.barDuration ?? 1) * pointsPerSecond)
             let snap = adjustment.snapBars(phraseBars: phraseBars, fine: event.modifierFlags.contains(.option))
             let bars = Int((Double((x - startX) / barWidth) / Double(snap)).rounded()) * snap
@@ -336,8 +386,10 @@ final class TimelineCanvas: NSView {
             window?.invalidateCursorRects(for: self)
         }
         switch gesture {
-        case .reorder(let id, _, let offset) where abs(offset) > Self.dragThreshold:
-            onMove(id, dropTarget(for: id, offset: offset)?.id)
+        case .reorder(let id, let ids, _, let offset, _) where abs(offset) > Self.dragThreshold:
+            onMove(ids, dropTarget(for: id, moving: ids, offset: offset)?.id)
+        case .reorder(let id, _, _, _, true):
+            select(selectedIDs.subtracting([id]), anchor: id)
         case .adjust(_, _, let edit?):
             // The preview stays up until the edited clips arrive, so the drop does not flicker.
             onEdit(edit)
@@ -349,13 +401,16 @@ final class TimelineCanvas: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         guard gesture == nil, let clip = shown.last(where: { rect(for: $0).contains(point) }) else { return nil }
-        select(clip.id)
+        if !selectedIDs.contains(clip.id) { select([clip.id], anchor: clip.id) }
         let menu = NSMenu()
-        if let grid = clip.analysis?.grid { addSplitItem(to: menu, for: clip, grid: grid, at: point, fine: event.modifierFlags.contains(.option)) }
-        let remove = menu.addItem(withTitle: String(localized: "Remove Track"), action: #selector(removeFromMenu(_:)), keyEquivalent: "\u{8}")
+        if selectedIDs.count == 1, let grid = clip.analysis?.grid {
+            addSplitItem(to: menu, for: clip, grid: grid, at: point, fine: event.modifierFlags.contains(.option))
+        }
+        let title = selectedIDs.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove \(selectedIDs.count) Tracks")
+        let remove = menu.addItem(withTitle: title, action: #selector(removeFromMenu(_:)), keyEquivalent: "\u{8}")
         remove.keyEquivalentModifierMask = .command
         remove.target = self
-        remove.representedObject = clip.id
+        remove.representedObject = selectedIDs
         return menu
     }
 
@@ -380,12 +435,13 @@ final class TimelineCanvas: NSView {
     }
 
     @objc private func removeFromMenu(_ item: NSMenuItem) {
-        guard let id = item.representedObject as? Track.ID else { return }
-        onRemove(id)
+        guard let ids = item.representedObject as? Set<Track.ID> else { return }
+        onRemove(ids)
     }
 
     override func resetCursorRects() {
         for clip in shown {
+            if let bridge = bridgeRect(for: clip) { addCursorRect(bridge, cursor: .openHand) }
             let body = bodyRect(for: clip)
             guard body.intersects(bounds) else { continue }
             if let edge = leadingEdgeRect(for: clip) { addCursorRect(edge, cursor: .resizeLeftRight) }
@@ -396,18 +452,20 @@ final class TimelineCanvas: NSView {
         }
     }
 
-    private func select(_ id: Track.ID?) {
+    private func select(_ ids: Set<Track.ID>, anchor: Track.ID? = nil) {
+        selectionAnchor = anchor
         isSelectingFromCanvas = true
-        selectedID = id
+        selectedIDs = ids
         isSelectingFromCanvas = false
-        onSelect(id)
+        onSelect(ids)
     }
 
-    /// The clip the dragged one would be inserted before; nil means the end of the set.
-    private func dropTarget(for id: Track.ID, offset: CGFloat) -> TimelineClip? {
+    /// The clip the dragged ones would be inserted before, judged by where `id` is dropped; nil means
+    /// the end of the set.
+    private func dropTarget(for id: Track.ID, moving ids: Set<Track.ID>, offset: CGFloat) -> TimelineClip? {
         guard let clip = shown.first(where: { $0.id == id }) else { return nil }
         let center = clip.center + Double(offset) / pointsPerSecond
-        return shown.first { $0.id != id && $0.center > center }
+        return shown.first { !ids.contains($0.id) && $0.center > center }
     }
 
     // MARK: - Geometry
@@ -425,7 +483,7 @@ final class TimelineCanvas: NSView {
     private func rect(for clip: TimelineClip) -> CGRect {
         let lane = laneRect(clip.lane)
         var r = CGRect(x: x(for: clip.start), y: lane.minY, width: CGFloat(clip.duration * pointsPerSecond), height: lane.height)
-        if case .reorder(let id, _, let offset) = gesture, id == clip.id { r.origin.x += offset }
+        if case .reorder(_, let ids, _, let offset, _) = gesture, ids.contains(clip.id) { r.origin.x += offset }
         return r
     }
 
@@ -474,12 +532,17 @@ final class TimelineCanvas: NSView {
         return clips.indices.dropFirst().last { index in
             let clip = clips[index]
             guard clip.placed.overlapBars > 0 else { return false }
-            let minX = x(for: clip.start)
-            let width = max(4, CGFloat(Double(clip.placed.overlapBars) * clip.barDuration * pointsPerSecond))
-            guard point.x >= minX, point.x <= minX + width else { return false }
-            let bridge = CGRect(x: minX, y: laneRect(0).maxY, width: width, height: Self.lanePadding)
+            guard let bridge = bridgeRect(for: clip), point.x >= bridge.minX, point.x <= bridge.maxX else { return false }
             return bodyRect(for: clip).contains(point) || bodyRect(for: clips[index - 1]).contains(point) || bridge.contains(point)
         }
+    }
+
+    /// The handle of the clip's transition in across the gap between the lanes, at least a few points
+    /// wide so it stays visible and grabbable when the whole set is in view.
+    private func bridgeRect(for clip: TimelineClip) -> CGRect? {
+        guard !clip.isFirst, clip.placed.overlapBars > 0 else { return nil }
+        let width = max(Self.minBridgeWidth, CGFloat(Double(clip.placed.overlapBars) * clip.barDuration * pointsPerSecond))
+        return CGRect(x: x(for: clip.start), y: laneRect(0).maxY - 2, width: width, height: Self.lanePadding + 4)
     }
 
     private func swapMarker(at point: CGPoint) -> (x: CGFloat, ownerID: Track.ID)? {
@@ -500,35 +563,38 @@ final class TimelineCanvas: NSView {
             laneRect(lane).intersection(dirtyRect).fill()
         }
         drawRuler(dirtyRect)
-        drawTransitionBridges(dirtyRect)
 
-        var dragged: Track.ID?
-        if case .reorder(let id, _, _) = gesture { dragged = id }
-        for clip in shown where clip.id != dragged && rect(for: clip).intersects(dirtyRect) {
+        for clip in shown { drawUnheard(clip, in: context, dirtyRect: dirtyRect) }
+        var dragged: Set<Track.ID> = []
+        if case .reorder(_, let ids, _, _, _) = gesture { dragged = ids }
+        for clip in shown where !dragged.contains(clip.id) && rect(for: clip).intersects(dirtyRect) {
             drawClip(clip, in: context, dirtyRect: dirtyRect)
         }
-        if case .reorder(let id, _, let offset) = gesture, let clip = shown.first(where: { $0.id == id }) {
-            let markerX = dropTarget(for: id, offset: offset).map { x(for: $0.start) } ?? x(for: setDuration)
+        drawTransitionBridges(dirtyRect)
+        if case .reorder(let id, let ids, _, let offset, _) = gesture {
+            let markerX = dropTarget(for: id, moving: ids, offset: offset).map { x(for: $0.start) } ?? x(for: setDuration)
             Theme.selection.setFill()
             CGRect(x: markerX - 1.5, y: Self.rulerHeight, width: 3, height: bounds.height - Self.rulerHeight).fill()
-            drawClip(clip, in: context, dirtyRect: dirtyRect, alpha: 0.9)
+            for clip in shown where ids.contains(clip.id) { drawClip(clip, in: context, dirtyRect: dirtyRect, alpha: 0.9) }
         }
         drawPlayhead(dirtyRect)
     }
 
-    /// Marks every transition across the gap between the lanes, at least a few points wide so it
-    /// stays visible when the whole set is in view.
+    /// Draws every transition's handle as a grey pill with a grip; the one under the pointer or being
+    /// dragged lights up.
     private func drawTransitionBridges(_ dirtyRect: CGRect) {
-        let gap = CGRect(x: 0, y: laneRect(0).maxY, width: bounds.width, height: Self.lanePadding)
-        for clip in shown where !clip.isFirst {
-            let placed = clip.placed
-            guard placed.overlapBars > 0 else { continue }
-            let start = x(for: Double(placed.startBar) * clip.barDuration)
-            let width = max(4, CGFloat(Double(placed.overlapBars) * clip.barDuration * pointsPerSecond))
-            let bridge = CGRect(x: start, y: gap.minY - 2, width: width, height: gap.height + 4)
-            guard bridge.intersects(dirtyRect) else { continue }
-            Theme.swap.withAlphaComponent(0.85).setFill()
-            NSBezierPath(roundedRect: bridge, xRadius: 2, yRadius: 2).fill()
+        var dragged: Track.ID?
+        if case .adjust(.transition(let entry, _), _, _) = gesture { dragged = entry.id }
+        for clip in shown {
+            guard let bridge = bridgeRect(for: clip), bridge.intersects(dirtyRect) else { continue }
+            let active = clip.id == dragged || clip.id == hoveredTransition
+            (active ? Theme.text : Theme.secondaryText.withAlphaComponent(0.7)).setFill()
+            NSBezierPath(roundedRect: bridge, xRadius: 3, yRadius: 3).fill()
+            guard bridge.width >= 16 else { continue }
+            Theme.background.withAlphaComponent(active ? 0.7 : 0.5).setFill()
+            for offset in [-3, 0, 3] as [CGFloat] {
+                CGRect(x: bridge.midX + offset - 0.5, y: bridge.minY + 3, width: 1, height: bridge.height - 6).fill()
+            }
         }
     }
 
@@ -591,10 +657,29 @@ final class TimelineCanvas: NSView {
         drawHeader(clip, in: header)
         context.restoreGState()
 
-        let selected = clip.id == selectedID
+        let selected = selectedIDs.contains(clip.id)
         (selected ? Theme.selection : Theme.clipBorder).setStroke()
         shape.lineWidth = selected ? 2 : 1
         shape.stroke()
+    }
+
+    /// Draws the track's audio before its cue in and after its cue out, which the set doesn't play,
+    /// as a grey, dark waveform on the lane under the clips.
+    private func drawUnheard(_ clip: TimelineClip, in context: CGContext, dirtyRect: CGRect) {
+        guard let analysis = clip.analysis else { return }
+        let placed = clip.placed
+        let body = bodyRect(for: clip)
+        let track = CGRect(x: x(ofTrackBar: 0, in: clip), y: body.minY,
+                           width: x(ofTrackBar: Double(placed.barCount), in: clip) - x(ofTrackBar: 0, in: clip), height: body.height)
+        let unheard = [CGRect(x: track.minX, y: body.minY, width: body.minX - track.minX, height: body.height),
+                       CGRect(x: body.maxX, y: body.minY, width: track.maxX - body.maxX, height: body.height)]
+        for part in unheard where part.width > 0 && part.intersects(dirtyRect) {
+            let visible = part.intersection(dirtyRect)
+            context.saveGState()
+            context.clip(to: part)
+            drawWaveform(analysis, clip: clip, body: track, dirtyRect: visible, dimmed: true)
+            context.restoreGState()
+        }
     }
 
     private func drawSections(_ analysis: TrackAnalysis, clip: TimelineClip, body: CGRect) {
@@ -638,8 +723,10 @@ final class TimelineCanvas: NSView {
         }
     }
 
-    /// Draws the stretched track: set offset `dt` into the clip shows source time `firstDownbeat + (cueIn + dt / setBar) * trackBar`.
-    private func drawWaveform(_ analysis: TrackAnalysis, clip: TimelineClip, body: CGRect, dirtyRect: CGRect) {
+    /// Draws the stretched track within `body`: set offset `dt` from the track's bar 0 shows source time
+    /// `firstDownbeat + dt / setBar * trackBar`, wherever `body` starts.
+    /// `dimmed` draws it grey and darker.
+    private func drawWaveform(_ analysis: TrackAnalysis, clip: TimelineClip, body: CGRect, dirtyRect: CGRect, dimmed: Bool = false) {
         let waveform = analysis.waveform
         let start = max(body.minX, dirtyRect.minX).rounded(.down)
         // Columns sit on whole points, so the outline must reach the first one at or past the dirty
@@ -650,7 +737,7 @@ final class TimelineCanvas: NSView {
         let halfHeight = body.height / 2 - 6
         let grid = analysis.grid
         let sourceSecondsPerPoint = grid.barDuration / clip.barDuration / pointsPerSecond
-        let sourceAtBodyStart = grid.firstDownbeat + Double(clip.placed.cueInBar) * grid.barDuration
+        let barZeroX = x(ofTrackBar: 0, in: clip)
 
         let bands: [(Data, NSColor, CGFloat)] = [(waveform.low, Theme.waveLow, 1), (waveform.mid, Theme.waveMid, 0.72), (waveform.high, Theme.waveHigh, 0.45)]
         for (data, color, scale) in bands {
@@ -658,7 +745,7 @@ final class TimelineCanvas: NSView {
             data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
                 var x = start
                 while x <= end {
-                    let sourceStart = sourceAtBodyStart + Double(x - body.minX) * sourceSecondsPerPoint
+                    let sourceStart = grid.firstDownbeat + Double(x - barZeroX) * sourceSecondsPerPoint
                     let first = Int(sourceStart * waveform.pointsPerSecond)
                     let last = min(waveform.count, max(first + 1, Int((sourceStart + sourceSecondsPerPoint) * waveform.pointsPerSecond)))
                     // Zoomed out, a column spans many points: their mean keeps the dynamics readable.
@@ -677,9 +764,16 @@ final class TimelineCanvas: NSView {
             path.addLines(between: tops + tops.reversed().map { CGPoint(x: $0.x, y: 2 * middle - $0.y) })
             path.closeSubpath()
             context.addPath(path)
-            context.setFillColor(color.cgColor)
+            context.setFillColor(dimmed ? Self.dimmed(color).cgColor : color.cgColor)
             context.fillPath()
         }
+    }
+
+    /// The color's lightness as a grey, darkened by `unheardDimming`.
+    private static func dimmed(_ color: NSColor) -> NSColor {
+        let white = color.usingColorSpace(.genericGamma22Gray)?.whiteComponent
+        precondition(white != nil, "Waveform color without a grey equivalent")
+        return NSColor(white: white! * (1 - unheardDimming), alpha: color.alphaComponent)
     }
 
     private func drawKicks(_ analysis: TrackAnalysis, clip: TimelineClip, body: CGRect) {

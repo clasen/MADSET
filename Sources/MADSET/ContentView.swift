@@ -5,12 +5,15 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var document: SetDocument
+    /// Where the set is saved; nil until it is.
+    let fileURL: URL?
     @Environment(\.undoManager) private var undoManager
     @State private var isDropTargeted = false
     @State private var fitRequest = 0
     @AppStorage("showsDecks") private var showsDecks = true
     @AppStorage("followsPlayhead") private var followsPlayhead = true
     @AppStorage("trackListHeight") private var trackListHeight = 260.0
+    @AppStorage("showsSetsSidebar") private var showsSetsSidebar = false
     @State private var timelineHeight: CGFloat = 0
     @State private var listHeight: CGFloat = 0
 
@@ -41,7 +44,14 @@ struct ContentView: View {
                 trackListHeight = min(max(start.list - offset, Self.minTrackListHeight), start.list + start.timeline - Self.minTimelineHeight)
             } heights: { (list: listHeight, timeline: timelineHeight) }
             // The list takes its height first and gives it back only once the timeline is at its minimum.
-            TrackListView(document: document, layout: layout)
+            HSplitView {
+                if showsSetsSidebar {
+                    SetsSidebar(current: fileURL)
+                        .frame(minWidth: 180, idealWidth: 230, maxWidth: 300)
+                }
+                TrackListView(document: document, layout: layout, showsSidebar: $showsSetsSidebar)
+                    .frame(minWidth: 500)
+            }
                 .frame(minHeight: Self.minTrackListHeight, maxHeight: max(trackListHeight, Self.minTrackListHeight))
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
                 .layoutPriority(1)
@@ -51,7 +61,7 @@ struct ContentView: View {
         .background(KeyMonitor(keyCode: KeyMonitor.space, modifiers: []) { document.togglePlayback() })
         // ⌘ so a stray Delete never drops a track; the selection is shared by the list and the timeline.
         .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
-            if let selection = document.selection { document.remove(selection) }
+            document.remove(document.selection)
         })
         .overlay {
             if isDropTargeted {
@@ -204,7 +214,7 @@ private struct CompactTransport: View {
 }
 
 /// Horizontal bar between the panels above and the track list; dragging it trades height between
-/// the timeline and the list.
+/// the timeline and the list. Its grip grows and lights up under the pointer.
 private struct PaneSplitter: View {
     typealias Heights = (list: CGFloat, timeline: CGFloat)
 
@@ -212,16 +222,27 @@ private struct PaneSplitter: View {
     let resize: (Heights, CGFloat) -> Void
     let heights: () -> Heights
     @State private var start: Heights?
+    @State private var isHovered = false
 
     var body: some View {
+        let active = isHovered || start != nil
         ZStack {
-            Rectangle().fill(Theme.hairline).frame(height: 1)
-            Capsule().fill(Color.white.opacity(0.18)).frame(width: 36, height: 3)
+            Rectangle().fill(active ? Color.white.opacity(0.2) : Theme.hairline).frame(height: 1)
+            Capsule().fill(Color.white.opacity(active ? 0.85 : 0.35))
+                .frame(width: active ? 72 : 44, height: active ? 6 : 4)
+                .overlay {
+                    HStack(spacing: 3) {
+                        ForEach(0..<3, id: \.self) { _ in Circle().fill(Theme.window.opacity(0.7)).frame(width: 2, height: 2) }
+                    }
+                    .opacity(active ? 1 : 0)
+                }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 7)
+        .frame(height: 11)
         .background(Theme.window)
         .contentShape(Rectangle())
+        .animation(.easeOut(duration: 0.15), value: active)
+        .onHover { isHovered = $0 }
         .pointerStyle(.rowResize)
         .gesture(
             DragGesture(minimumDistance: 1, coordinateSpace: .global)

@@ -25,7 +25,7 @@ struct TimelineView: NSViewRepresentable {
         canvas.followsPlayhead = followsPlayhead
         canvas.onFollowsPlayheadChange = { followsPlayhead = $0 }
         canvas.clips = clips
-        canvas.selectedID = document.selection
+        canvas.selectedIDs = document.selection
         if canvas.fitRequest != fitRequest {
             canvas.fitRequest = fitRequest
             canvas.fitAll()

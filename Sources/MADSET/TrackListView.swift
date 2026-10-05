@@ -2,15 +2,23 @@ import MADSETCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The set in order, one row per track, under a library-style header. Rows drag to reorder;
-/// ⌘⌫ removes the selection (see `ContentView`).
+/// The set in order, one row per track, under a library-style header whose first button folds out
+/// the sets sidebar. Selected rows drag together
+/// to reorder; their context menu moves them to either end or removes them, as does ⌘⌫ (see `ContentView`).
 struct TrackListView: View {
     @Bindable var document: SetDocument
     let layout: SetLayout
+    @Binding var showsSidebar: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
+                Button(showsSidebar ? "Hide Sets" : "Show Sets", systemImage: "sidebar.left") { showsSidebar.toggle() }
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(showsSidebar ? Theme.accent : .secondary)
+                    .keyboardShortcut("s", modifiers: [.command, .control])
+                    .help(showsSidebar ? String(localized: "Hide your sets and groups (⌃⌘S)") : String(localized: "Show your sets and groups (⌃⌘S)"))
                 Text("Set").font(.system(size: 13, weight: .semibold))
                 Text(summary).font(.system(size: 12)).monospacedDigit().foregroundStyle(.secondary)
                 Spacer()
@@ -34,6 +42,15 @@ struct TrackListView: View {
                     }
                 } header: {
                     ColumnHeader()
+                }
+            }
+            .contextMenu(forSelectionType: Track.ID.self) { ids in
+                if !ids.isEmpty {
+                    Button("Move to Start") { document.moveToStart(ids) }
+                    Button("Move to End") { document.move(ids, before: nil) }
+                    Divider()
+                    Button(ids.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove \(ids.count) Tracks")) { document.remove(ids) }
+                        .keyboardShortcut(.delete, modifiers: .command)
                 }
             }
             .listStyle(.plain)

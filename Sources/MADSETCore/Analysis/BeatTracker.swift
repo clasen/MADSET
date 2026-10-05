@@ -131,7 +131,9 @@ public enum BeatTracker {
 
     /// Time in 0..<period of the kick attack: among the strong onset clusters of the folded beat,
     /// the one followed by the most sub-band energy, refined to the circular mean of the attack
-    /// onsets around it.
+    /// onsets around it. A cluster is the highest onset within `window`: a kick whose sub swells
+    /// slowly rises in ripples, and counting each ripple would favor the last, which is followed by
+    /// the most body but lies past the attack.
     private static func kickPhase(_ onset: OnsetEnvelope, attack: OnsetEnvelope, period: Double) -> Double {
         func bin(ofFrame i: Int) -> Int {
             let phase = onset.time(ofFrame: i) / period
@@ -144,19 +146,18 @@ public enum BeatTracker {
             onsetFold[b] += onset.values[i]
             levelFold[b] += onset.level[i] * onset.level[i]
         }
+        let window = phaseBins / 8
         let body = phaseBins / 4
         let strongest = onsetFold.max() ?? 0
         var kickBin = 0
         var bestBody: Float = -1
         for b in 0..<phaseBins {
-            let previous = onsetFold[(b + phaseBins - 1) % phaseBins]
-            let next = onsetFold[(b + 1) % phaseBins]
-            guard onsetFold[b] >= previous, onsetFold[b] >= next, onsetFold[b] >= strongest * 0.3 else { continue }
+            let neighborhood = (-window...window).map { onsetFold[(b + $0 + phaseBins) % phaseBins] }
+            guard onsetFold[b] >= strongest * 0.3, onsetFold[b] >= neighborhood.max() ?? 0 else { continue }
             let energy = (0..<body).map { levelFold[(b + $0) % phaseBins] }.reduce(0, +)
             if energy > bestBody { bestBody = energy; kickBin = b }
         }
 
-        let window = phaseBins / 8
         var s = 0.0, c = 0.0
         for i in attack.values.indices {
             var distance = abs(bin(ofFrame: i) - kickBin)

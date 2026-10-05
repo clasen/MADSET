@@ -9,6 +9,7 @@ public final class SetPlayer: @unchecked Sendable {
     private let config: AppConfig.Playback
     private let engine: AVAudioEngine
     private let shared: SharedState
+    private var configurationObserver: NSObjectProtocol?
 
     /// `engine` is injectable so tests can render without a sound device (manual rendering mode).
     public init(config: AppConfig.Playback, sources: SourceCache, engine: AVAudioEngine = AVAudioEngine()) throws {
@@ -31,6 +32,14 @@ public final class SetPlayer: @unchecked Sendable {
         engine.connect(source, to: engine.mainMixerNode, format: format)
         try engine.start()
 
+        // Switching the output device stops the engine; restart it on the new device.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+        ) { _ in
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: engine.outputNode.outputFormat(forBus: 0))
+            try? engine.start()
+        }
+
         // The thread holds only what it needs, so releasing the player stops it.
         let thread = Thread { Producer(shared: shared, config: config, sources: sources, engine: engine).run() }
         thread.qualityOfService = .userInteractive
@@ -39,6 +48,7 @@ public final class SetPlayer: @unchecked Sendable {
     }
 
     deinit {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
         shared.running.store(false, ordering: .releasing)
         engine.stop()
     }
@@ -48,7 +58,11 @@ public final class SetPlayer: @unchecked Sendable {
     /// Seconds into the set at the playhead.
     public var currentTime: TimeInterval { Double(shared.playheadFrame) / config.sampleRate }
 
-    public func play() { shared.playing.store(true, ordering: .releasing) }
+    /// Starts the engine again if a device change left it stopped and the restart then failed.
+    public func play() throws {
+        if !engine.isRunning { try engine.start() }
+        shared.playing.store(true, ordering: .releasing)
+    }
     public func pause() { shared.playing.store(false, ordering: .releasing) }
 
     public func load(_ layout: SetLayout) { shared.commands.withLock { $0.append(.layout(layout)) } }
