@@ -141,3 +141,14 @@
 "The sets folder could not be changed" = "No se pudo cambiar la carpeta de sets";
 "A group can't go inside itself." = "Un grupo no puede ir dentro de sí mismo.";
 "“%@” can't be used as a name." = "“%@” no se puede usar como nombre.";
+"This set isn't in your sets yet. Save it here, or into a group with its context menu." = "Este set todavía no está entre tus sets. Guardalo acá, o en un grupo con el menú contextual.";
+"Save Set Here" = "Guardar acá";
+"Save This Set Here" = "Guardar este set acá";
+"Save This Set in “%@”" = "Guardar este set en “%@”";
+"Empty: drag sets here or save one with the context menu" = "Vacío: arrastrá sets acá o guardá uno con el menú contextual";
+"Move to Trash…" = "Mover a la papelera…";
+"Move to Trash" = "Mover a la papelera";
+"You can put it back from the Trash." = "Lo podés recuperar desde la papelera.";
+"Move %lld items to the Trash?" = "¿Mover %lld elementos a la papelera?";
+"Move the group “%@” and everything in it to the Trash?" = "¿Mover el grupo “%@” y todo lo que contiene a la papelera?";
+"Move the set “%@” to the Trash?" = "¿Mover el set “%@” a la papelera?";

@@ -53,9 +53,14 @@ public enum SetLibrary {
 
     /// Writes `contents` as a new set in `folder` called `name`, numbered if the name is taken.
     public static func createSet(named name: String, contents: Data, in folder: URL) throws -> URL {
-        let url = try availableURL(for: name, pathExtension: fileExtension, in: folder)
+        let url = try newSetURL(named: name, in: folder)
         try contents.write(to: url, options: .withoutOverwriting)
         return url
+    }
+
+    /// Where a set called `name` can be saved in `folder`, numbered if the name is taken.
+    public static func newSetURL(named name: String, in folder: URL) throws -> URL {
+        try availableURL(for: name, pathExtension: fileExtension, in: folder)
     }
 
     /// Moves a set or group into `folder`, numbering its name if another item there has it.

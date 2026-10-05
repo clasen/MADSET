@@ -2,6 +2,7 @@ import AppKit
 import CoreServices
 import MADSETCore
 import Observation
+import UniformTypeIdentifiers
 
 /// The sets folder the user chose and what is in it, shared by every window and kept current
 /// while files change on disk.
@@ -78,6 +79,26 @@ final class SetLibraryModel {
             created = try SetLibrary.createSet(named: String(localized: "New Set"), contents: empty, in: group)
         }
         if let created { open(created) }
+    }
+
+    /// Saves the set in the frontmost window into `group`, under its name, and keeps editing it there.
+    func saveCurrentSet(in group: URL) {
+        guard let document = NSDocumentController.shared.currentDocument else { return }
+        let name = document.fileURL?.deletingPathExtension().lastPathComponent ?? document.displayName!
+        var destination: URL?
+        perform { destination = try SetLibrary.newSetURL(named: name, in: group) }
+        guard let destination else { return }
+        document.save(to: destination, ofType: document.fileType ?? UTType.madsetSet.identifier, for: .saveAsOperation) { error in
+            Task { @MainActor in
+                if let error { self.error = error.localizedDescription }
+                self.reload()
+            }
+        }
+    }
+
+    /// Moves sets and groups to the Trash, where they can be put back from.
+    func trash(_ urls: [URL]) {
+        perform { for url in urls.filter(contains) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } }
     }
 
     func rename(_ url: URL, to name: String) {
