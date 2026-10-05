@@ -235,8 +235,8 @@ public struct SetLayout: Sendable, Equatable {
     }
 
     /// Bars that `bar` of `old` moves by in this layout when what plays there goes on unchanged:
-    /// the same tracks, each at the same place in it. Nil when the edit changes what plays at `bar`.
-    /// Same tempo in both.
+    /// the same tracks, each at the same place in it, whatever the tempo of each layout. Nil when the
+    /// edit changes what plays at `bar`.
     public func shift(from old: SetLayout, atBar bar: Double) -> Int? {
         let heard = old.heard(atBar: bar)
         let edited = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })

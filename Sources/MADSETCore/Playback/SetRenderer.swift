@@ -65,14 +65,17 @@ public final class SetRenderer {
     /// What plays now is protected: an edit that leaves it as it is, give or take a shift by whole
     /// bars (a track before it removed, say), applies at once and moves the position along with it,
     /// without a break. One that changes it waits for the next bar line, where only the tracks it
-    /// changes are cut. A tempo change keeps the bar and restarts every track.
+    /// changes are cut. A tempo change restarts every track, at the same place in what plays when
+    /// the edit keeps it (a track before it removed, say), else on the same bar of the set; it does
+    /// not count as a move, since the position is in other frames anyway.
     public func update(_ newLayout: SetLayout) -> Int {
         let current = pending?.layout ?? layout
         pending = nil
         if newLayout.bpm != current.bpm {
             let bar = Double(position) / framesPerBar
+            let shift = newLayout.shift(from: layout, atBar: bar) ?? 0
             layout = newLayout
-            position = Int(bar * framesPerBar)
+            position = Int((bar + Double(shift)) * framesPerBar)
             voices.removeAll()
             return 0
         }

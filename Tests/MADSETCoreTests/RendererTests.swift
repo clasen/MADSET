@@ -170,6 +170,26 @@ import Testing
         #expect(render(renderer, frames: 2 * bar) == render(reference, frames: 2 * bar))
     }
 
+    /// Removing the middle of three tracks changes the median tempo of the set: the third track
+    /// restarts at the new tempo on the bar of it that was playing.
+    @Test func aTempoChangeFromAnEditStaysOnWhatPlays() throws {
+        let (entries, tracks, sources) = try twoTracks()
+        let third = SetEntry(file: entries[0].file)
+        var all = tracks
+        all[third.id] = tracks[entries[0].id]
+        let layout = SetLayout(bpm: 126, entries: entries + [third], tracks: all, phraseBars: 8)
+        let renderer = SetRenderer(layout: layout, sources: sources, config: playback)
+        let playing = layout.entries[2]
+        let bar = Double(playing.startBar + playing.overlapBars) + 4.5
+        renderer.seek(toFrame: Int(bar * renderer.framesPerBar))
+
+        let edited = SetLayout(bpm: 124, entries: [entries[0], third], tracks: all, phraseBars: 8)
+        _ = renderer.update(edited)
+        let moved = edited.entries[1]
+        let trackBar = { (entry: PlacedEntry, setBar: Double) in Double(entry.cueInBar) + setBar - Double(entry.startBar) }
+        #expect(abs(trackBar(moved, Double(renderer.position) / renderer.framesPerBar) - trackBar(playing, bar)) < 1e-4)
+    }
+
     /// An edit that changes what plays keeps the old mix up to the next bar line and the new one from there.
     @Test func anEditOfWhatPlaysWaitsForTheBarLine() throws {
         let (entries, tracks, sources) = try twoTracks()

@@ -207,8 +207,10 @@ private struct Producer {
                         continue
                     }
                     if current.layout.bpm != layout.bpm {
+                        // Restarts at the new tempo on what is heard now, wherever the edit moved it.
                         jump = nil
-                        let bar = Double(shared.playheadFrame) / current.framesPerBar
+                        let heard = Double(shared.playheadFrame) / current.framesPerBar
+                        let bar = heard + Double(layout.shift(from: current.layout, atBar: heard) ?? 0)
                         _ = current.update(layout)
                         flush(renderer: current, toFrame: Int(bar * current.framesPerBar))
                     } else {

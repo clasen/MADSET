@@ -89,6 +89,37 @@ import Testing
         #expect(abs(player.currentTime - (target + before + 2 - layout.barDuration)) < 0.01)
     }
 
+    @Test func removingAPlayedTrackThatChangesTheTempoStaysOnWhatPlays() throws {
+        var config = AppConfig.current.playback
+        config.sampleRate = sampleRate
+        let samples = Synth.track(bpm: 125, bars: 32, leadIn: 0.2) { _ in [.kick, .bass, .hats] }
+        let analysis = try TrackAnalyzer.analyze(samples: samples, needsKey: false, config: AppConfig.current.analysis)
+        let entries = (0..<3).map { _ in SetEntry(file: URL(filePath: "/synthetic/loop.wav")) }
+        let tracks = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, SetLayout.TrackInfo(analysis: analysis, duration: analysis.duration)) })
+        let layout = SetLayout(bpm: 125, entries: entries, tracks: tracks, phraseBars: 8)
+        let sources = SourceCache(capacity: 1, sampleRate: sampleRate) { _, _ in PCMBuffer(channels: [samples, samples], sampleRate: Synth.sampleRate) }
+        let engine = AVAudioEngine()
+        try engine.enableManualRenderingMode(.offline, format: AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!, maximumFrameCount: 1_024)
+        let player = try SetPlayer(config: config, sources: sources, engine: engine)
+        player.load(layout)
+
+        let third = layout.entries[2]
+        try player.play(from: layout.time(ofBar: Double(third.startBar + third.overlapBars + 2)))
+        _ = try pull(engine, seconds: 0.5)
+        let trackBar = { (entry: PlacedEntry, layout: SetLayout, time: TimeInterval) in
+            Double(entry.cueInBar) + layout.bar(atTime: time) - Double(entry.startBar)
+        }
+        let before = trackBar(third, layout, player.currentTime)
+
+        let edited = SetLayout(bpm: 128, entries: [entries[0], entries[2]], tracks: tracks, phraseBars: 8)
+        player.load(edited)
+        Thread.sleep(forTimeInterval: 0.2)
+        _ = try pull(engine, seconds: 0.5)
+        // Half a second later at the new tempo, give or take the restart.
+        let after = trackBar(edited.entries[1], edited, player.currentTime - 0.5)
+        #expect(abs(after - before) < 0.1)
+    }
+
     @Test func resumesAfterTheOutputDeviceChanges() throws {
         let (player, engine, _) = try makePlayer()
         try player.play()
