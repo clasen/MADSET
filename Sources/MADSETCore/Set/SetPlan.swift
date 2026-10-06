@@ -186,6 +186,15 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
         return (cueInBar + shift, overlap, (bassSwapBar - shift).clamped(to: 0...overlap))
     }
 
+    /// The cue in that starts the first track of the set `bars` later into itself: the rest of the
+    /// set moves along with its end. With no transition in to hide it, it never reaches into silence
+    /// before the track's audio; it keeps a bar of its own before the transition into `next`.
+    public func firstCueIn(trimmedBy bars: Int, before next: PlacedEntry?) -> Int {
+        let earliest = min(0, -cueInBar)
+        let latest = max(0, lengthBars - 1 - (next?.overlapBars ?? 0))
+        return cueInBar + bars.clamped(to: earliest...latest)
+    }
+
     /// Ends this track `bars` later without moving its audio, the next track or its bass swap: the
     /// transition into `next` gets that much longer. It can shrink back through silence past the
     /// track's audio but not grow into more of it; each track keeps a bar of its own, and the

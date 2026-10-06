@@ -13,7 +13,8 @@ import MADSETCore
 /// - Drag any other clip to move it under its transition in, which stays where it is: a different
 ///   part of the track plays in it.
 /// - Drag a clip's leading or trailing edge to trim its start or end, which shortens or lengthens
-///   its transition without moving either track or the bass swap.
+///   its transition without moving either track or the bass swap. The first clip's leading edge
+///   moves its cue in, and the rest of the set with it.
 ///   Transitions snap to phrases, ⌥ to bars; they may run into silence before or after a track's
 ///   audio as long as both tracks play in them.
 /// - ⌘-click a clip to add it to the selection or take it out; ⇧-click selects every clip from the
@@ -111,6 +112,8 @@ final class TimelineCanvas: NSView {
         case transition(PlacedEntry, previous: PlacedEntry)
         /// Where a track starts; see `PlacedEntry.trimmingStart(by:after:)`.
         case trimStart(PlacedEntry, previous: PlacedEntry)
+        /// Where the first track starts; see `PlacedEntry.firstCueIn(trimmedBy:before:)`.
+        case trimFirstStart(PlacedEntry, next: PlacedEntry?)
         /// Where a track ends; see `PlacedEntry.trimmingEnd(by:before:)`.
         case trimEnd(PlacedEntry, next: PlacedEntry?)
         /// Where the lows swap within a transition.
@@ -119,7 +122,7 @@ final class TimelineCanvas: NSView {
         func snapBars(phraseBars: Int, fine: Bool) -> Int {
             switch self {
             case .bassSwap: 1
-            case .slide, .transition, .trimStart, .trimEnd: fine ? 1 : phraseBars
+            case .slide, .transition, .trimStart, .trimFirstStart, .trimEnd: fine ? 1 : phraseBars
             }
         }
 
@@ -154,6 +157,10 @@ final class TimelineCanvas: NSView {
                         $0.overlapBars = overlap
                         $0.bassSwapBar = swap
                     })])
+            case .trimFirstStart(let entry, let next):
+                let cueIn = entry.firstCueIn(trimmedBy: bars, before: next)
+                return cueIn == entry.cueInBar ? nil
+                    : ArrangementEdit(name: String(localized: "Change Cue In"), changes: [(entry.id, { $0.cueInBar = cueIn })])
             case .trimEnd(let entry, let next):
                 let (cueOut, overlap, swap) = entry.trimmingEnd(by: bars, before: next)
                 guard cueOut != entry.cueOutBar else { return nil }
@@ -361,7 +368,7 @@ final class TimelineCanvas: NSView {
             return
         }
         let clips = shown
-        let edge = clips.indices.last { leadingEdgeRect(for: clips[$0])?.contains(point) == true }
+        let edge = clips.indices.last { leadingEdgeRect(for: clips[$0]).contains(point) }
         let trailingEdge = clips.indices.last { trailingEdgeRect(for: clips[$0]).contains(point) }
         guard let index = edge ?? trailingEdge ?? clips.lastIndex(where: { rect(for: $0).contains(point) }) ?? transitionIndex(at: point) else {
             select([])
@@ -388,7 +395,9 @@ final class TimelineCanvas: NSView {
         if let marker = swapMarker(at: point), let owner = clips.first(where: { $0.id == marker.ownerID }) {
             gesture = .adjust(.bassSwap(owner.placed), startX: point.x, edit: nil)
         } else if edge != nil {
-            gesture = .adjust(.trimStart(clip.placed, previous: clips[index - 1].placed), startX: point.x, edit: nil)
+            let adjustment: Adjustment = clip.isFirst ? .trimFirstStart(clip.placed, next: clip.next)
+                : .trimStart(clip.placed, previous: clips[index - 1].placed)
+            gesture = .adjust(adjustment, startX: point.x, edit: nil)
         } else if trailingEdge != nil {
             gesture = .adjust(.trimEnd(clip.placed, next: clip.next), startX: point.x, edit: nil)
         } else if let incoming = transitionIndex(at: point) ?? (clip.isFirst && clips.count > 1 ? 1 : nil) {
@@ -489,7 +498,7 @@ final class TimelineCanvas: NSView {
             if let bridge = bridgeRect(for: clip) { addCursorRect(bridge, cursor: .openHand) }
             let body = bodyRect(for: clip)
             guard body.intersects(bounds) else { continue }
-            if let edge = leadingEdgeRect(for: clip) { addCursorRect(edge, cursor: .resizeLeftRight) }
+            addCursorRect(leadingEdgeRect(for: clip), cursor: .resizeLeftRight)
             addCursorRect(trailingEdgeRect(for: clip), cursor: .resizeLeftRight)
             for marker in markers(of: clip) {
                 addCursorRect(CGRect(x: marker.x - Self.markerHitWidth, y: body.minY, width: 2 * Self.markerHitWidth, height: body.height), cursor: .resizeLeftRight)
@@ -559,8 +568,7 @@ final class TimelineCanvas: NSView {
     }
 
     /// Where a drag trims the clip's start: its leading edge, below the header.
-    private func leadingEdgeRect(for clip: TimelineClip) -> CGRect? {
-        guard !clip.isFirst else { return nil }
+    private func leadingEdgeRect(for clip: TimelineClip) -> CGRect {
         let body = bodyRect(for: clip)
         return CGRect(x: body.minX - Self.markerHitWidth, y: body.minY, width: 2 * Self.markerHitWidth, height: body.height)
     }

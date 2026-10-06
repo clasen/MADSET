@@ -312,6 +312,32 @@ import Testing
         #expect(incoming.trimmingStart(by: -1000, after: outgoing).cueIn == 0)
     }
 
+    @Test func trimmingTheFirstStartMovesTheRestOfTheSetAlong() {
+        let a = UUID(), b = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 96, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b)]
+        entries[0].cueOutBar = 64
+        entries[1].overlapBars = 16
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (first, second) = (before.entries[0], before.entries[1])
+
+        entries[0].cueInBar = first.firstCueIn(trimmedBy: 8, before: second)
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(after.entries[0].cueInBar == first.cueInBar + 8)
+        #expect(after.entries[0].startBar == 0)
+        #expect(after.entries[1].startBar == second.startBar - 8)
+        #expect(after.entries[1].overlapBars == second.overlapBars)
+
+        // No silence before the track, and a bar of its own before the transition out.
+        #expect(first.firstCueIn(trimmedBy: -1000, before: second) == 0)
+        #expect(first.firstCueIn(trimmedBy: 1000, before: second) == 64 - 16 - 1)
+        #expect(first.firstCueIn(trimmedBy: 1000, before: nil) == 63)
+    }
+
     @Test func trimmingTheEndShortensTheTransitionWithoutMovingAnything() {
         let a = UUID(), b = UUID(), c = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
