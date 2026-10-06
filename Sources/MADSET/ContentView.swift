@@ -67,6 +67,8 @@ struct ContentView: View {
         .background(KeyMonitor(keyCode: KeyMonitor.right, modifiers: []) { document.move(byBars: document.phraseBars) })
         .background(KeyMonitor(keyCode: KeyMonitor.left, modifiers: .option) { document.move(byBars: -1) })
         .background(KeyMonitor(keyCode: KeyMonitor.right, modifiers: .option) { document.move(byBars: 1) })
+        .background(KeyMonitor(keyCode: KeyMonitor.left, modifiers: .shift) { document.moveToTrack(forward: false) })
+        .background(KeyMonitor(keyCode: KeyMonitor.right, modifiers: .shift) { document.moveToTrack(forward: true) })
         // ⌘ so a stray Delete never drops a track. The list and the timeline share the selection
         // while the list shows the loaded set; otherwise it removes from the one with the focus.
         .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {

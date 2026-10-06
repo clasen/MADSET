@@ -61,7 +61,7 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 
 **Order by what matters.** Sort the set, or just the selected tracks, by set curve, energy, key (a walk around the Camelot wheel) or BPM. Undo if it's worse.
 
-**Edit while it plays.** Move a transition, slide a track, remove one: what's on air keeps going. An edit that doesn't touch what you're hearing applies without a click; one that does waits for the next bar line and fades only the tracks it changes. Heads land on bars, and moving one while it plays carries on from the new bar at the next bar line, no gap. Left and right jump a phrase, with Option a bar.
+**Edit while it plays.** Move a transition, slide a track, remove one: what's on air keeps going. An edit that doesn't touch what you're hearing applies without a click; one that does waits for the next bar line and fades only the tracks it changes. Heads land on bars, and moving one while it plays carries on from the new bar at the next bar line, no gap. Left and right jump a phrase, with Option a bar, with Shift to the start of the next or previous track.
 
 **Cue it in your headphones.** Monitor mode (M, or the headphones button) runs a second player on another output, in phase with the main one, so you can try a transition while the room hears the set. **Preview** in the transition editor takes you there a few bars early. A cue mix blends in the main output, lined up with what the room hears, and each output plays on the channel pair you pick, so headphones on outputs 3-4 of an interface just work.
 

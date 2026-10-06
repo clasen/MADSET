@@ -365,6 +365,20 @@ final class SetDocument {
         refreshTransport()
     }
 
+    /// Moves the playhead, or the monitor head in monitor mode, to the start of the next track past
+    /// where it is or is about to go on from; backwards, to the last track start before that. Moves
+    /// made before a playing one gets to its next bar line chain, so each press goes one track further.
+    func moveToTrack(forward: Bool) {
+        guard let player = transportPlayer() else { return }
+        let layout = layout
+        let bar = layout.bar(atTime: player.pendingMove ?? player.currentTime)
+        let starts = layout.entries.map { Double($0.startBar) }
+        let target = forward ? starts.filter { $0 > bar }.min() : starts.filter { $0 < bar }.max()
+        guard let target else { return }
+        play { try player.move(to: layout.time(ofBar: clampedBar(target))) }
+        refreshTransport()
+    }
+
     /// Bars an arrow key moves a head by; with ⌥, one.
     var phraseBars: Int { Self.config.analysis.phraseBars }
 

@@ -97,6 +97,12 @@ private struct SetCommands: Commands {
             Button("Back a Bar") { document?.move(byBars: -1) }
                 .keyboardShortcut(.leftArrow, modifiers: [.option])
                 .disabled(document == nil)
+            Button("Next Track") { document?.moveToTrack(forward: true) }
+                .keyboardShortcut(.rightArrow, modifiers: [.shift])
+                .disabled(document == nil)
+            Button("Previous Track") { document?.moveToTrack(forward: false) }
+                .keyboardShortcut(.leftArrow, modifiers: [.shift])
+                .disabled(document == nil)
             Divider()
             Toggle("Monitor Mode", isOn: Binding { document?.monitorMode == true } set: { document?.setMonitorMode($0) })
                 .keyboardShortcut("m", modifiers: [])

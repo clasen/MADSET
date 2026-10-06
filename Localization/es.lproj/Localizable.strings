@@ -38,6 +38,8 @@
 "Back a Phrase" = "Retroceder una frase";
 "Forward a Bar" = "Adelantar un compás";
 "Back a Bar" = "Retroceder un compás";
+"Next Track" = "Tema siguiente";
+"Previous Track" = "Tema anterior";
 "Preview" = "Pre-escuchar";
 "Play this transition on the monitor output, from a few bars before it, in time with the set (turns monitor mode on)" = "Escuchar esta transición por la salida de monitoreo, desde unos compases antes, a tiempo con el set (prende el modo monitor)";
 "Monitor Mode" = "Modo monitor";
