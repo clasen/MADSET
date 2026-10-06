@@ -61,7 +61,7 @@ the temporary directory.
 
 ## Git
 
-Agents commit only when asked. Branch from `main`; imperative, English commit messages.
+Branch from `main`; imperative, English commit messages.
 
 ## Glossary
 
