@@ -1,12 +1,12 @@
 # MADSET
 
-A native macOS app for building long DJ sets. Drag in a pile of tracks, and it works out the tempo, the beatgrid, where the drops are, and how to get from one track to the next. Then it plays the whole thing at one tempo, transitions included.
+A native macOS app that turns a pile of tracks into a DJ set that's already mixed. Drag them in and it works out the tempo, the beatgrid, where the drops are, and how to get from one track to the next. Then it plays the whole thing at one tempo, transitions included, and you only fix what you don't like.
 
 ![MADSET: timeline, decks, transition editor and the set list](docs/screenshots/madset.webp)
 
 The idea is simple: light and powerful. No library to import, no subscription, no Electron. Swift, Accelerate and AVFoundation doing their job. The first time I tried it for real I dragged in about 1000 tracks and it handed me a 100-hour set almost instantly. I didn't need a 100-hour set. Nobody does. But it's good to know it's there.
 
-It's alpha. It works, I use it, and it will still surprise you now and then.
+It's beta. It works, I use it, and once in a while it will still surprise you.
 
 ## Install
 
