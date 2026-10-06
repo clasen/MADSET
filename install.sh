@@ -11,11 +11,14 @@ main() {
   local branch="main"
   local archive="https://codeload.github.com/$repo/tar.gz/refs/heads/$branch"
   local destination="$HOME/Applications/MADSET.app"
-  local stage="" backup="" arch macos swift_version source
+  local stage="" backup="" arch macos swift_output swift_version source
   local connect_timeout=15 download_timeout=600
 
   fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+  # The ${var:-} defaults matter: when set -e ends the script, bash 5 drops main's locals before
+  # running the EXIT trap, and set -u would turn that into an unbound-variable error.
   cleanup() {
+    local stage="${stage:-}" backup="${backup:-}" destination="${destination:-$HOME/Applications/MADSET.app}"
     if [ -n "$backup" ] && [ -e "$backup" ] && [ ! -e "$destination" ]; then
       mv "$backup" "$destination" || printf 'Restore the previous app from %s\n' "$backup" >&2
     fi
@@ -25,6 +28,8 @@ main() {
     fi
   }
   trap cleanup EXIT
+  # Safety net: with set -e a failing command would otherwise end the script without a word.
+  trap 'printf "Error: the installer stopped at line %s (exit %s).\n" "$LINENO" "$?" >&2' ERR
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
@@ -47,7 +52,14 @@ main() {
     until xcode-select -p >/dev/null 2>&1 && xcrun --find swift >/dev/null 2>&1; do sleep 5; done
     printf 'Command Line Tools installed.\n'
   fi
-  swift_version="$(swift --version 2>&1 | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
+  # swift exits non-zero (69) while the Xcode license is pending; under set -e that was a silent exit.
+  if ! swift_output="$(swift --version 2>&1)"; then
+    case "$swift_output" in
+      *[Ll]icense*) fail 'Accept the Xcode license first: sudo xcodebuild -license accept. Then run the installer again.' ;;
+      *) fail "swift --version failed: $swift_output" ;;
+    esac
+  fi
+  swift_version="$(printf '%s\n' "$swift_output" | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -n 1)"
   [ -n "$swift_version" ] || fail 'Could not read the Swift version. Check that xcode-select points to a working toolchain.'
   { [ "${swift_version%%.*}" -gt 6 ] || { [ "${swift_version%%.*}" -eq 6 ] && [ "${swift_version#*.}" -ge 2 ]; }; } \
     || fail "MADSET needs Swift 6.2 or newer, found $swift_version. Update Xcode or the Command Line Tools."
