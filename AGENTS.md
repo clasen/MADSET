@@ -1,7 +1,8 @@
 # MADSET
 
-Native macOS app that turns a pile of audio files into a DJ set that's already mixed. It analyzes
-every track (BPM, beatgrid, kick, phases, key fallback) in parallel and lays the set out on a timeline.
+Native macOS app for building DJ sets and playing them live. Drag in many audio files: it analyzes
+every track (BPM, beatgrid, kick, phases, key fallback) in parallel and lays out a set that's already
+mixed on a timeline, which you keep editing while it plays. MIDI clock out syncs a groovebox to the set.
 Personal use: runs locally, never distributed, so GPL dependencies are acceptable.
 
 ## Stack

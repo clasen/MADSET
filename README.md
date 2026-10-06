@@ -1,6 +1,6 @@
 # MADSET
 
-A native macOS app that turns a pile of tracks into a DJ set that's already mixed. Drag them in and it works out the tempo, the beatgrid, where the drops are, and how to get from one track to the next. Then it plays the whole thing at one tempo, transitions included, and you only fix what you don't like.
+A native macOS app for building DJ sets and playing them live. Drag in a pile of tracks and it works out the tempo, the beatgrid, where the drops are, and how to get from one track to the next, so you start from a set that's already mixed. Then it plays the whole thing at one tempo, transitions included, and you keep changing it while it plays. Got a groovebox? Plug it in and it follows the set over MIDI clock.
 
 ![MADSET: timeline, decks, transition editor and the set list](docs/screenshots/madset.webp)
 
@@ -58,6 +58,8 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 **Transitions that land on the phrase.** Each track mixes into the previous one in phase, with the bass swap where it belongs. If you don't like it, change the mix-in bar, length, bass swap, fades, cue in and cue out, bar by bar. **Auto** puts it back.
 
 **One tempo for the whole set.** Leave it on the median of your tracks or pick a set BPM, and every track is stretched to it in real time with [Rubber Band](https://breakfastquay.com/rubberband/).
+
+**Bring a groovebox.** MADSET sends MIDI clock, start, stop and song position locked to the set's beats and bars, so whatever is on that port plays in time with the kick and its patterns start on the bar. An offset in Settings makes up for the latency.
 
 **Order by what matters.** Sort the set, or just the selected tracks, by set curve, energy, key (a walk around the Camelot wheel) or BPM. Undo if it's worse.
 
