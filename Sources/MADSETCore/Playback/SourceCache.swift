@@ -11,6 +11,8 @@ public final class SourceCache: @unchecked Sendable {
     private let condition = NSCondition()
     private var slots: [URL: Slot] = [:]
     private var recency: [URL] = []
+    /// Callers of `buffer(for:)` per track, which keep it from being evicted before they take it.
+    private var waiting: [URL: Int] = [:]
     private let capacity: Int
     private let sampleRate: Double
     private let decode: @Sendable (URL, Double) throws -> PCMBuffer
@@ -35,6 +37,9 @@ public final class SourceCache: @unchecked Sendable {
     /// The decoded track, waiting for (or doing) the decode if needed.
     public func buffer(for url: URL) throws -> PCMBuffer {
         condition.lock()
+        defer { condition.unlock() }
+        waiting[url, default: 0] += 1
+        defer { waiting[url] = waiting[url]! > 1 ? waiting[url]! - 1 : nil }
         if slots[url] == nil {
             slots[url] = .loading
             touch(url)
@@ -42,7 +47,6 @@ public final class SourceCache: @unchecked Sendable {
             load(url)
             condition.lock()
         }
-        defer { condition.unlock() }
         while true {
             switch slots[url] {
             case .ready(let buffer):
@@ -76,11 +80,17 @@ public final class SourceCache: @unchecked Sendable {
         recency.append(url)
     }
 
-    /// Requires the lock. Never evicts tracks still loading.
+    /// Requires the lock. Never evicts tracks still loading or waited for.
     private func evictIfNeeded() {
-        while recency.count > capacity, let victim = recency.first(where: { if case .loading = slots[$0] { false } else { true } }) {
+        while recency.count > capacity, let victim = recency.first(where: isEvictable) {
             recency.removeAll { $0 == victim }
             slots[victim] = nil
         }
+    }
+
+    /// Requires the lock.
+    private func isEvictable(_ url: URL) -> Bool {
+        if case .loading = slots[url] { return false }
+        return waiting[url] == nil
     }
 }
