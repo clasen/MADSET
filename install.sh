@@ -52,10 +52,18 @@ main() {
     until xcode-select -p >/dev/null 2>&1 && xcrun --find swift >/dev/null 2>&1; do sleep 5; done
     printf 'Command Line Tools installed.\n'
   fi
-  # swift exits non-zero (69) while the Xcode license is pending; under set -e that was a silent exit.
+  # Xcode's tools, swift included, exit 69 until its license is accepted.
   if ! swift_output="$(swift --version 2>&1)"; then
     case "$swift_output" in
-      *[Ll]icense*) fail 'Accept the Xcode license first: sudo xcodebuild -license accept. Then run the installer again.' ;;
+      *[Ll]icense*)
+        printf 'Xcode is installed but its license has not been accepted yet.\n'
+        printf 'Accepting the Xcode and Apple SDKs license (sudo xcodebuild -license accept). Enter your Mac password if asked.\n'
+        # sudo reads the password from the terminal, so this works under curl | bash too.
+        sudo xcodebuild -license accept \
+          || fail 'Could not accept the Xcode license. Run: sudo xcodebuild -license accept, then run the installer again.'
+        swift_output="$(swift --version 2>&1)" || fail "swift --version failed: $swift_output"
+        printf 'Xcode license accepted.\n'
+        ;;
       *) fail "swift --version failed: $swift_output" ;;
     esac
   fi
