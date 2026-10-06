@@ -60,7 +60,7 @@ private struct DeckView: View {
                 DeckOverview(clip: clip, color: Theme.decks[lane])
                     .equatable()
                     .overlay { progress(clip) }
-                    .frame(height: 40)
+                    .frame(height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                 details(clip)
             } else {
@@ -179,22 +179,28 @@ private struct DeckOverview: View, Equatable {
 
     var body: some View {
         Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Theme.control.opacity(0.6)))
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.4)))
             let placed = clip.placed
             let length = Double(placed.lengthBars)
             func x(ofBar bar: Double) -> CGFloat { size.width * CGFloat((bar - Double(placed.cueInBar)) / length) }
 
-            for region in transitionRegions() {
+            let transitions = transitionRegions()
+            for region in transitions {
                 let rect = CGRect(x: x(ofBar: region.lowerBound), y: 0, width: x(ofBar: region.upperBound) - x(ofBar: region.lowerBound), height: size.height)
-                context.fill(Path(rect), with: .color(Color(nsColor: Theme.swap).opacity(0.18)))
+                context.fill(Path(rect), with: .color(.white.opacity(0.09)))
             }
-            guard let analysis = clip.analysis else { return }
-            drawWaveform(analysis, in: &context, size: CGSize(width: size.width, height: size.height - 4))
-            for section in analysis.sections {
-                let x0 = max(0, x(ofBar: Double(section.startBar)))
-                let x1 = min(size.width, x(ofBar: Double(section.endBar)))
-                guard x1 > x0 else { continue }
-                context.fill(Path(CGRect(x: x0, y: size.height - 3, width: x1 - x0, height: 3)), with: .color(Color(nsColor: Theme.color(for: section.phase))))
+            if let analysis = clip.analysis {
+                drawWaveform(analysis, in: &context, size: CGSize(width: size.width, height: size.height - 4))
+                for section in analysis.sections {
+                    let x0 = max(0, x(ofBar: Double(section.startBar)))
+                    let x1 = min(size.width, x(ofBar: Double(section.endBar)))
+                    guard x1 > x0 else { continue }
+                    context.fill(Path(CGRect(x: x0, y: size.height - 3, width: x1 - x0, height: 3)), with: .color(Color(nsColor: Theme.color(for: section.phase))))
+                }
+            }
+            for region in transitions {
+                let rect = CGRect(x: x(ofBar: region.lowerBound), y: size.height - 3, width: x(ofBar: region.upperBound) - x(ofBar: region.lowerBound), height: 3)
+                context.fill(Path(rect), with: .color(color))
             }
         }
     }
