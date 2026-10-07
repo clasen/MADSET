@@ -38,7 +38,8 @@ public final class PlayheadClock: Sendable {
                         beatsPerSecond: sampleRate / framesPerBeat)
     }
 
-    /// Producer side, while nothing is consumed: the tempo of the audio that plays from now on.
+    /// The tempo of the audio that plays from now on: set by the producer while nothing is consumed, or
+    /// by the audio callback where a tempo change is heard.
     func setFramesPerBeat(_ frames: Double) {
         framesPerBeat.store(frames.bitPattern, ordering: .releasing)
     }

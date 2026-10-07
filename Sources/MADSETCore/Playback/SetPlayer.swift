@@ -4,7 +4,8 @@ import Synchronization
 
 /// Plays a `SetLayout`. A producer thread mixes ahead of the playhead into a ring buffer; the audio
 /// callback only copies from it. Layout edits reach the producer without interrupting tracks whose
-/// placement is unchanged; seeks and tempo changes flush the buffer. Playing starts once audio is
+/// placement is unchanged, and a tempo change while audio comes out without a break, once what is
+/// buffered has played; seeks, and tempo changes otherwise, flush the buffer. Playing starts once audio is
 /// buffered; a player that follows another one then waits for its beat, to play in phase with it, and
 /// can mix in what the other one plays, as it is heard, for a cue mix.
 public final class SetPlayer: @unchecked Sendable {
@@ -230,12 +231,10 @@ private struct Producer {
                         continue
                     }
                     if current.layout.bpm != layout.bpm {
-                        // Restarts at the new tempo on what is heard now, wherever the edit moved it.
+                        // A move waiting for its bar line counted bars at the old tempo; it is dropped.
+                        if jump != nil { shared.requestedJump.store(-1, ordering: .releasing) }
                         jump = nil
-                        let heard = Double(shared.playheadFrame) / current.framesPerBar
-                        let bar = heard + Double(layout.shift(from: current.layout, atBar: heard) ?? 0)
-                        _ = current.update(layout)
-                        flush(renderer: current, toFrame: Int(bar * current.framesPerBar))
+                        retime(renderer: current, to: layout)
                     } else {
                         let moved = current.update(layout)
                         if moved != 0 {
@@ -258,12 +257,12 @@ private struct Producer {
                 continue
             }
             if let pending = jump, renderer.position >= pending.at {
-                // The callback takes one jump at a time; it is at most a buffer away.
-                guard !shared.jumpPending else {
+                // Jumps queue up in the buffer; the oldest is at most a buffer away.
+                guard shared.canJump else {
                     Thread.sleep(forTimeInterval: 0.002)
                     continue
                 }
-                shared.jump(toFrame: pending.target)
+                shared.jump(toFrame: pending.target, framesPerBeat: renderer.framesPerBeat)
                 renderer.seek(toFrame: pending.target)
                 jump = nil
                 fadesIn = true
@@ -291,12 +290,29 @@ private struct Producer {
     /// Keeps the playhead on what plays after an edit moved it `frames` along the set: from the next
     /// frame written while playing, so it goes on without a break; otherwise at once.
     func follow(renderer: SetRenderer, movedBy frames: Int) {
-        // The callback takes one jump at a time; it is at most a buffer away.
-        while shared.jumpPending, shared.isSounding { Thread.sleep(forTimeInterval: 0.001) }
+        // Jumps queue up in the buffer; the oldest is at most a buffer away.
+        while !shared.canJump, shared.isSounding { Thread.sleep(forTimeInterval: 0.001) }
         if shared.isSounding {
-            shared.jump(toFrame: renderer.position)
+            shared.jump(toFrame: renderer.position, framesPerBeat: renderer.framesPerBeat)
         } else {
             flush(renderer: renderer, toFrame: shared.playheadFrame + frames)
+        }
+    }
+
+    /// Goes on at `layout`'s tempo, wherever the edit moved what plays. While audio comes out, what is
+    /// buffered plays out at the old tempo and the new one goes on from the next frame written, without
+    /// a break; otherwise it restarts at once on what is heard now.
+    func retime(renderer: SetRenderer, to layout: SetLayout) {
+        // Nothing starts sounding meanwhile: only this thread arms a start.
+        while !shared.canJump, shared.isSounding { Thread.sleep(forTimeInterval: 0.001) }
+        if shared.isSounding {
+            _ = renderer.update(layout)
+            shared.jump(toFrame: renderer.position, framesPerBeat: renderer.framesPerBeat)
+        } else {
+            let heard = Double(shared.playheadFrame) / renderer.framesPerBar
+            let bar = heard + Double(layout.shift(from: renderer.layout, atBar: heard) ?? 0)
+            _ = renderer.update(layout)
+            flush(renderer: renderer, toFrame: Int(bar * renderer.framesPerBar))
         }
     }
 
@@ -367,11 +383,20 @@ private final class SharedState: @unchecked Sendable {
     /// Monotonic counters; the ring index is the counter modulo `capacity`.
     private let written = Atomic<Int>(0)
     private let read = Atomic<Int>(0)
-    /// A jump written into the buffer and not yet played: from the read count `jumpCount` on, the
-    /// set frame is `jumpBase` plus the count.
-    private let jumpIsPending = Atomic<Bool>(false)
-    private let jumpCount = Atomic<Int>(0)
-    private let jumpBase = Atomic<Int>(0)
+    /// Jumps written into the buffer and not yet played, oldest first, in a ring of `maxJumps`;
+    /// the counters are monotonic like the audio ring's.
+    private let jumps: UnsafeMutablePointer<Jump>
+    private let jumpsWritten = Atomic<Int>(0)
+    private let jumpsRead = Atomic<Int>(0)
+    /// Enough for the tempo changes of a fast scroll within one buffer.
+    private static let maxJumps = 64
+
+    /// From the read count `count` on, the set frame is `base` plus the count, at `framesPerBeat`.
+    private struct Jump {
+        var count: Int
+        var base: Int
+        var framesPerBeat: Double
+    }
 
     init(capacity: Int, sampleRate: Double, clock: PlayheadClock, heard: HeardAudio,
          reference: (clock: PlayheadClock, heard: HeardAudio)?) {
@@ -382,11 +407,13 @@ private final class SharedState: @unchecked Sendable {
         self.reference = reference
         left = .allocate(capacity: capacity)
         right = .allocate(capacity: capacity)
+        jumps = .allocate(capacity: Self.maxJumps)
     }
 
     deinit {
         left.deallocate()
         right.deallocate()
+        jumps.deallocate()
     }
 
     var playheadFrame: Int { baseFrame.load(ordering: .acquiring) + consumed.load(ordering: .acquiring) }
@@ -405,23 +432,26 @@ private final class SharedState: @unchecked Sendable {
         heard.write(left: source, right: sourceRight, frames: frames)
     }
 
-    var jumpPending: Bool { jumpIsPending.load(ordering: .acquiring) }
+    /// There is room for another jump.
+    var canJump: Bool { jumpsWritten.load(ordering: .relaxed) - jumpsRead.load(ordering: .acquiring) < Self.maxJumps }
 
     /// The callback is playing out of the buffer.
     var isSounding: Bool { transport.load(ordering: .acquiring) == Transport.playing.rawValue }
 
-    /// Producer side, while no jump is pending: what is written from now on plays from set frame `frame`.
-    func jump(toFrame frame: Int) {
+    /// Producer side, while `canJump`: what is written from now on plays from set frame `frame`, at
+    /// `framesPerBeat`.
+    func jump(toFrame frame: Int, framesPerBeat: Double) {
+        let index = jumpsWritten.load(ordering: .relaxed)
+        precondition(index - jumpsRead.load(ordering: .acquiring) < Self.maxJumps, "Jump queue full")
         let count = written.load(ordering: .relaxed)
-        jumpCount.store(count, ordering: .relaxed)
-        jumpBase.store(frame - count, ordering: .relaxed)
-        jumpIsPending.store(true, ordering: .releasing)
+        jumps[index % Self.maxJumps] = Jump(count: count, base: frame - count, framesPerBeat: framesPerBeat)
+        jumpsWritten.store(index + 1, ordering: .releasing)
     }
 
-    /// Producer side, only while the callback is parked by `flushing`. A pending jump goes with the
-    /// audio it was written into.
+    /// Producer side, only while the callback is parked by `flushing`. Pending jumps go with the
+    /// audio they were written into.
     func reset(baseFrame frame: Int) {
-        jumpIsPending.store(false, ordering: .releasing)
+        jumpsRead.store(jumpsWritten.load(ordering: .relaxed), ordering: .releasing)
         requestedJump.store(-1, ordering: .releasing)
         heardBase.store(heard.count, ordering: .releasing)
         written.store(0, ordering: .releasing)
@@ -475,12 +505,15 @@ private final class SharedState: @unchecked Sendable {
             }
             read.store(start + copied, ordering: .releasing)
             consumed.add(copied, ordering: .releasing)
-            if jumpIsPending.load(ordering: .acquiring), start + copied >= jumpCount.load(ordering: .relaxed) {
-                let base = jumpBase.load(ordering: .relaxed)
-                baseFrame.store(base, ordering: .releasing)
-                jumpIsPending.store(false, ordering: .releasing)
+            var next = jumpsRead.load(ordering: .relaxed)
+            while next < jumpsWritten.load(ordering: .acquiring), start + copied >= jumps[next % Self.maxJumps].count {
+                let jump = jumps[next % Self.maxJumps]
+                baseFrame.store(jump.base, ordering: .releasing)
+                clock.setFramesPerBeat(jump.framesPerBeat)
+                next += 1
+                jumpsRead.store(next, ordering: .releasing)
                 // A later move asked for meanwhile still waits.
-                _ = requestedJump.compareExchange(expected: base + jumpCount.load(ordering: .relaxed), desired: -1, ordering: .acquiringAndReleasing)
+                _ = requestedJump.compareExchange(expected: jump.base + jump.count, desired: -1, ordering: .acquiringAndReleasing)
             }
         } else {
             clock.stop()

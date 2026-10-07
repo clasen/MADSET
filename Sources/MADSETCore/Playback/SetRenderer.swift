@@ -5,7 +5,8 @@ import Foundation
 /// a bass swap (the incoming lows stay killed until the swap bar, the outgoing ones go after it).
 /// Used by the player in real time and by export offline. Not thread-safe.
 public final class SetRenderer {
-    /// Frames a track fades in or out over where an edit or a jump cuts it, so the cut does not click.
+    /// Frames a track fades in or out over where an edit or a jump cuts it, and crossfades over where a
+    /// tempo change restarts it, so the cut does not click.
     public static let declickFrames = 128
 
     public let sampleRate: Double
@@ -20,18 +21,40 @@ public final class SetRenderer {
     private let prefetchSeconds: Double
     private var voices: [UUID: Voice] = [:]
     private let scratch: [UnsafeMutablePointer<Float>]
+    private let crossfadeScratch: [UnsafeMutablePointer<Float>]
 
     private final class Voice {
         var entry: PlacedEntry
-        let stretcher: StretchedSource
+        var stretcher: StretchedSource
         var equalizers: [DJEqualizer]
         /// Starts on an edit's bar line, over other tracks, so it fades in.
         var fadesIn = false
+        /// The stretcher a tempo change replaced, heard while `stretcher` fades in over it, and the
+        /// frames of that crossfade rendered so far.
+        var replaced: StretchedSource?
+        var crossfaded = 0
 
         init(entry: PlacedEntry, stretcher: StretchedSource, equalizers: [DJEqualizer]) {
             self.entry = entry
             self.stretcher = stretcher
             self.equalizers = equalizers
+        }
+
+        /// Renders the next `frames` of the track, crossfading from the replaced stretcher if any.
+        func render(into output: [UnsafeMutablePointer<Float>], frames: Int, scratch: [UnsafeMutablePointer<Float>]) {
+            stretcher.render(into: output, frames: frames)
+            guard let replaced else { return }
+            let length = min(SetRenderer.declickFrames - crossfaded, frames)
+            replaced.render(into: scratch, frames: length)
+            for i in 0..<length {
+                let gain = Float(crossfaded + i) / Float(SetRenderer.declickFrames)
+                for (channel, old) in zip(output, scratch) { channel[i] = channel[i] * gain + old[i] * (1 - gain) }
+            }
+            crossfaded += length
+            if crossfaded == SetRenderer.declickFrames {
+                self.replaced = nil
+                crossfaded = 0
+            }
         }
     }
 
@@ -42,9 +65,10 @@ public final class SetRenderer {
         maxFrames = config.blockFrames
         prefetchSeconds = config.prefetchSeconds
         scratch = (0..<2).map { _ in UnsafeMutablePointer<Float>.allocate(capacity: config.blockFrames) }
+        crossfadeScratch = (0..<2).map { _ in UnsafeMutablePointer<Float>.allocate(capacity: config.blockFrames) }
     }
 
-    deinit { scratch.forEach { $0.deallocate() } }
+    deinit { (scratch + crossfadeScratch).forEach { $0.deallocate() } }
 
     public var framesPerBar: Double { layout.barDuration * sampleRate }
     public var framesPerBeat: Double { framesPerBar / 4 }
@@ -65,18 +89,31 @@ public final class SetRenderer {
     /// What plays now is protected: an edit that leaves it as it is, give or take a shift by whole
     /// bars (a track before it removed, say), applies at once and moves the position along with it,
     /// without a break. One that changes it waits for the next bar line, where only the tracks it
-    /// changes are cut. A tempo change restarts every track, at the same place in what plays when
-    /// the edit keeps it (a track before it removed, say), else on the same bar of the set; it does
-    /// not count as a move, since the position is in other frames anyway.
+    /// changes are cut. A tempo change goes on at the same place in what plays when the edit keeps
+    /// it (a track before it removed, say), each track crossfading into a restart at the new tempo,
+    /// else on the same bar of the set with every track restarted; it does not count as a move, since
+    /// the position is in other frames anyway.
     public func update(_ newLayout: SetLayout) -> Int {
         let current = pending?.layout ?? layout
         pending = nil
         if newLayout.bpm != current.bpm {
             let bar = Double(position) / framesPerBar
-            let shift = newLayout.shift(from: layout, atBar: bar) ?? 0
-            layout = newLayout
-            position = Int((bar + Double(shift)) * framesPerBar)
-            voices.removeAll()
+            guard let shift = newLayout.shift(from: layout, atBar: bar) else {
+                layout = newLayout
+                position = frame(ofBar: bar)
+                voices.removeAll()
+                return 0
+            }
+            apply(newLayout, shiftedBy: shift)
+            position = frame(ofBar: bar + Double(shift))
+            for voice in voices.values {
+                guard let grid = voice.entry.grid else { continue }
+                // A crossfade not yet heard keeps fading from what was heard.
+                if voice.replaced == nil || voice.crossfaded > 0 { voice.replaced = voice.stretcher }
+                voice.crossfaded = 0
+                voice.stretcher = stretcher(for: voice.entry, grid: grid, source: voice.stretcher.source,
+                                            at: max(position, frame(ofBar: Double(voice.entry.startBar))))
+            }
             return 0
         }
         let bar = Double(position) / framesPerBar
@@ -140,7 +177,7 @@ public final class SetRenderer {
             let from = max(position, start) - position
             let to = min(blockEnd, end) - position
             let next = index + 1 < layout.entries.count ? layout.entries[index + 1] : nil
-            voice.stretcher.render(into: scratch.map { $0 + from }, frames: to - from)
+            voice.render(into: scratch.map { $0 + from }, frames: to - from, scratch: crossfadeScratch)
             if voice.fadesIn {
                 voice.fadesIn = false
                 Self.ramp(scratch.map { $0 + from }, frames: to - from, fadingIn: true)
@@ -173,13 +210,19 @@ public final class SetRenderer {
     private func voice(for entry: PlacedEntry, at frame: Int) -> Voice? {
         if let voice = voices[entry.id] { return voice }
         guard let grid = entry.grid, let source = try? sources.buffer(for: entry.file) else { return nil }
+        let voice = Voice(entry: entry, stretcher: stretcher(for: entry, grid: grid, source: source, at: frame),
+                          equalizers: (0..<2).map { _ in DJEqualizer(sampleRate: sampleRate, maxFrames: maxFrames) })
+        voices[entry.id] = voice
+        return voice
+    }
+
+    /// `entry`'s audio stretched to the set tempo, starting at set frame `frame`.
+    private func stretcher(for entry: PlacedEntry, grid: BeatGrid, source: PCMBuffer, at frame: Int) -> StretchedSource {
         let stretcher = StretchedSource(source: source, ratio: grid.bpm / layout.bpm)
         let trackBar = Double(entry.cueInBar) + Double(frame) / framesPerBar - Double(entry.startBar)
         let sourceTime = grid.firstDownbeat + trackBar * grid.barDuration
         stretcher.seek(toSourceFrame: Int((sourceTime * source.sampleRate).rounded()))
-        let voice = Voice(entry: entry, stretcher: stretcher, equalizers: (0..<2).map { _ in DJEqualizer(sampleRate: sampleRate, maxFrames: maxFrames) })
-        voices[entry.id] = voice
-        return voice
+        return stretcher
     }
 
     func gains(for entry: PlacedEntry, next: PlacedEntry?, atFrame frame: Int) -> MixGains {

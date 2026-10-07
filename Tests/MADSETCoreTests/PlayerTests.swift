@@ -7,20 +7,21 @@ import Testing
 @Suite(.serialized) struct PlayerTests {
     private let sampleRate = Synth.sampleRate
 
-    private func makePlayer() throws -> (SetPlayer, AVAudioEngine, SetLayout) {
+    private func makePlayer() throws -> (SetPlayer, AVAudioEngine, SetLayout, [UUID: SetLayout.TrackInfo]) {
         var config = AppConfig.current.playback
         config.sampleRate = sampleRate
         let samples = Synth.track(bpm: 125, bars: 32, leadIn: 0.2) { _ in [.kick, .bass, .hats] }
         let entry = SetEntry(file: URL(filePath: "/synthetic/loop.wav"))
         let analysis = try TrackAnalyzer.analyze(samples: samples, needsKey: false, config: AppConfig.current.analysis)
-        let layout = SetLayout(bpm: 125, entries: [entry], tracks: [entry.id: .init(analysis: analysis, duration: analysis.duration)], phraseBars: 8)
+        let tracks = [entry.id: SetLayout.TrackInfo(analysis: analysis, duration: analysis.duration)]
+        let layout = SetLayout(bpm: 125, entries: [entry], tracks: tracks, phraseBars: 8)
         let sources = SourceCache(capacity: 1, sampleRate: sampleRate) { _, _ in PCMBuffer(channels: [samples, samples], sampleRate: Synth.sampleRate) }
 
         let engine = AVAudioEngine()
         try engine.enableManualRenderingMode(.offline, format: AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!, maximumFrameCount: 1_024)
         let player = try SetPlayer(config: config, sources: sources, engine: engine)
         player.load(layout)
-        return (player, engine, layout)
+        return (player, engine, layout, tracks)
     }
 
     /// Pulls `seconds` of output in small steps, giving the producer time to stay ahead. Returns the peak level.
@@ -36,7 +37,7 @@ import Testing
     }
 
     @Test func playsPausesAndTracksThePlayhead() throws {
-        let (player, engine, _) = try makePlayer()
+        let (player, engine, _, _) = try makePlayer()
         Thread.sleep(forTimeInterval: 0.2)
         #expect(try pull(engine, seconds: 0.5) == 0)
         #expect(player.currentTime == 0)
@@ -50,8 +51,8 @@ import Testing
         #expect(abs(player.currentTime - 2) < 0.05)
     }
 
-    @Test func seeksAndKeepsPositionAcrossTempoChanges() throws {
-        let (player, engine, layout) = try makePlayer()
+    @Test func seeksAndChangesTempoWithoutAGap() throws {
+        let (player, engine, layout, tracks) = try makePlayer()
         try player.play()
         player.seek(to: 20)
         Thread.sleep(forTimeInterval: 0.2)
@@ -59,18 +60,26 @@ import Testing
         // Playing waits for audio from the new place; pulled faster than real time, that wait spans a few blocks.
         #expect(player.currentTime <= 21 && player.currentTime > 20.85)
 
-        // At 125 BPM, 21 s is bar 10.9375; at 140 BPM the same bar is 18.75 s in.
         let faster = SetLayout(bpm: 140, entries: [SetEntry(id: layout.entries[0].id, file: layout.entries[0].file)],
-                               tracks: [layout.entries[0].id: .init(analysis: nil, duration: 60)], phraseBars: 8)
+                               tracks: tracks, phraseBars: 8)
         let bar = player.currentTime / layout.barDuration
         player.load(faster)
-        Thread.sleep(forTimeInterval: 0.2)
-        _ = try pull(engine, seconds: 0.1)
-        #expect(abs(player.currentTime / faster.barDuration - bar) < 0.1)
+        Thread.sleep(forTimeInterval: 0.05)
+        let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 1_024)!
+        let blocks = Int(sampleRate / 512)
+        for _ in 0..<blocks {
+            Thread.sleep(forTimeInterval: 0.002)
+            #expect(try engine.renderOffline(512, to: buffer) == .success)
+            #expect((0..<Int(buffer.frameLength)).contains { buffer.floatChannelData![0][$0] != 0 }, "A block went silent")
+        }
+        // What was buffered played at 125 BPM, the rest at 140.
+        let seconds = Double(blocks * 512) / sampleRate
+        let bars = player.currentTime / faster.barDuration - bar
+        #expect(bars > seconds / layout.barDuration - 0.005 && bars < seconds / faster.barDuration + 0.005)
     }
 
     @Test func movingWhilePlayingGoesOnFromTheNextBarLineWithoutAGap() throws {
-        let (player, engine, layout) = try makePlayer()
+        let (player, engine, layout, _) = try makePlayer()
         try player.play()
         _ = try pull(engine, seconds: 1)
         let before = player.currentTime
@@ -90,7 +99,7 @@ import Testing
     }
 
     @Test func movesByBarsAtTheNextBarLineAndAddsUpMovesBeforeIt() throws {
-        let (player, engine, layout) = try makePlayer()
+        let (player, engine, layout, _) = try makePlayer()
         try player.play()
         _ = try pull(engine, seconds: 1)
         let before = player.currentTime
@@ -143,7 +152,7 @@ import Testing
     }
 
     @Test func resumesAfterTheOutputDeviceChanges() throws {
-        let (player, engine, _) = try makePlayer()
+        let (player, engine, _, _) = try makePlayer()
         try player.play()
         #expect(try pull(engine, seconds: 0.5) > 0.1)
 

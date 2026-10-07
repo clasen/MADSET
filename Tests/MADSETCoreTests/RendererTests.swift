@@ -190,6 +190,34 @@ import Testing
         #expect(abs(trackBar(moved, Double(renderer.position) / renderer.framesPerBar) - trackBar(playing, bar)) < 1e-4)
     }
 
+    /// A tempo change in the middle of a transition crossfades each track into the new tempo, at the
+    /// same place in it as a mix started there at that tempo, without a break.
+    @Test func aTempoChangeGoesOnWithoutABreak() throws {
+        let (entries, tracks, sources) = try twoTracks()
+        let layout = SetLayout(bpm: 126, entries: entries, tracks: tracks, phraseBars: 8)
+        let renderer = SetRenderer(layout: layout, sources: sources, config: playback)
+        let bar = Double(layout.entries[1].startBar) + 4.5
+        renderer.seek(toFrame: Int(bar * renderer.framesPerBar))
+        let before = render(renderer, frames: playback.blockFrames)
+        let playing = Double(renderer.position) / renderer.framesPerBar
+
+        let faster = SetLayout(bpm: 130, entries: entries, tracks: tracks, phraseBars: 8)
+        #expect(renderer.update(faster) == 0)
+        let reference = SetRenderer(layout: faster, sources: sources, config: playback)
+        reference.seek(toFrame: renderer.position)
+        #expect(abs(Double(renderer.position) / renderer.framesPerBar - playing) < 1e-4)
+
+        let frames = Int(renderer.framesPerBar)
+        let after = render(renderer, frames: frames)
+        // No step at the change bigger than the audio makes on its own.
+        let largestStep = zip(before.dropFirst(), before).map { abs($0 - $1) }.max()!
+        #expect(abs(after[0] - before.last!) <= largestStep)
+        // Past the crossfade, the equalizers' history takes a moment to fade from the comparison.
+        let settled = frames / 4
+        let difference = zip(after.dropFirst(settled), render(reference, frames: frames).dropFirst(settled)).map { abs($0 - $1) }.max()!
+        #expect(difference < 1e-3)
+    }
+
     /// An edit that changes what plays keeps the old mix up to the next bar line and the new one from there.
     @Test func anEditOfWhatPlaysWaitsForTheBarLine() throws {
         let (entries, tracks, sources) = try twoTracks()
