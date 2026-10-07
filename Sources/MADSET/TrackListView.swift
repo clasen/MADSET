@@ -14,6 +14,7 @@ struct TrackListView: View {
     let isLoaded: Bool
     @Binding var showsSidebar: Bool
     let load: () -> Void
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,44 +38,59 @@ struct TrackListView: View {
             .frame(height: 30)
             .background(Theme.panel)
             Divider()
-            List(selection: $document.selection) {
-                Section {
-                    let split = splitFiles
-                    ForEach(Array(document.tracks.enumerated()), id: \.element.id) { index, track in
-                        let placed = layout.entries[index]
-                        TrackRow(position: index + 1, track: track, part: split.contains(track.url) ? placed.cueInBar..<placed.cueOutBar : nil,
-                                 setBPM: layout.bpm, isPlaying: document.nowPlaying.contains(track.id))
-                            .tag(track.id)
-                            // Lets rows drag out, onto a set in the sidebar or the timeline, as their files.
-                            .itemProvider { NSItemProvider(object: track.url as NSURL) }
-                    }
-                    .onMove { document.move(fromOffsets: $0, toOffset: $1) }
-                    .onInsert(of: [.fileURL]) { index, providers in
-                        FileDrop.loadURLs(from: providers) { document.importItems($0, at: index) }
-                    }
-                } header: {
-                    ColumnHeader()
-                }
-            }
-            .contextMenu(forSelectionType: Track.ID.self) { ids in
-                if !ids.isEmpty {
-                    Button("Move to Start") { document.moveToStart(ids) }
-                    Button("Move to End") { document.move(ids, before: nil) }
-                    Menu(ids.count < 2 ? String(localized: "Order Set") : String(localized: "Order \(ids.count) Tracks")) {
-                        ForEach(SetOrder.Criterion.allCases, id: \.self) { criterion in
-                            Button(criterion.title) { document.order(ids, by: criterion) }
-                        }
-                    }
-                    Divider()
-                    Button(ids.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove \(ids.count) Tracks")) { document.remove(ids) }
-                        .keyboardShortcut(.delete, modifiers: .command)
-                }
-            }
-            .listStyle(.plain)
-            .alternatingRowBackgrounds()
-            .scrollContentBackground(.hidden)
-            .background(Theme.window)
+            if document.tracks.isEmpty { emptySet } else { list }
         }
+    }
+
+    /// Takes drops itself: an empty list has no row to insert at, so it would turn them away.
+    private var emptySet: some View {
+        ContentUnavailableView("Drop tracks or folders here", systemImage: "square.and.arrow.down")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(isDropTargeted ? Theme.controlHover : Theme.window)
+            .dropDestination(for: URL.self) { urls, _ in
+                document.importItems(urls)
+                return !urls.isEmpty
+            } isTargeted: { isDropTargeted = $0 }
+    }
+
+    private var list: some View {
+        List(selection: $document.selection) {
+            Section {
+                let split = splitFiles
+                ForEach(Array(document.tracks.enumerated()), id: \.element.id) { index, track in
+                    let placed = layout.entries[index]
+                    TrackRow(position: index + 1, track: track, part: split.contains(track.url) ? placed.cueInBar..<placed.cueOutBar : nil,
+                             setBPM: layout.bpm, isPlaying: document.nowPlaying.contains(track.id))
+                        .tag(track.id)
+                        // Lets rows drag out, onto a set in the sidebar or the timeline, as their files.
+                        .itemProvider { NSItemProvider(object: track.url as NSURL) }
+                }
+                .onMove { document.move(fromOffsets: $0, toOffset: $1) }
+                .onInsert(of: [.fileURL]) { index, providers in
+                    FileDrop.loadURLs(from: providers) { document.importItems($0, at: index) }
+                }
+            } header: {
+                ColumnHeader()
+            }
+        }
+        .contextMenu(forSelectionType: Track.ID.self) { ids in
+            if !ids.isEmpty {
+                Button("Move to Start") { document.moveToStart(ids) }
+                Button("Move to End") { document.move(ids, before: nil) }
+                Menu(ids.count < 2 ? String(localized: "Order Set") : String(localized: "Order \(ids.count) Tracks")) {
+                    ForEach(SetOrder.Criterion.allCases, id: \.self) { criterion in
+                        Button(criterion.title) { document.order(ids, by: criterion) }
+                    }
+                }
+                Divider()
+                Button(ids.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove \(ids.count) Tracks")) { document.remove(ids) }
+                    .keyboardShortcut(.delete, modifiers: .command)
+            }
+        }
+        .listStyle(.plain)
+        .alternatingRowBackgrounds()
+        .scrollContentBackground(.hidden)
+        .background(Theme.window)
     }
 
     /// Files that play in more than one part of the set.
@@ -114,7 +130,7 @@ private struct ColumnHeader: View {
             Text("#").frame(width: TrackColumns.position, alignment: .trailing)
             Color.clear.frame(width: TrackColumns.playing)
             Text("Key").frame(width: TrackColumns.key)
-            Text("E").frame(width: TrackColumns.energy).help(String(localized: "Energy (Mixed In Key)"))
+            Text("E").frame(width: TrackColumns.energy).help(String(localized: "Energy (Mixed In Key; * estimated by MADSET)"))
             Text("Title").frame(maxWidth: .infinity, alignment: .leading)
             Text("Artist").frame(maxWidth: .infinity, alignment: .leading)
             Text("Genre").frame(width: TrackColumns.genre, alignment: .leading)
@@ -151,7 +167,7 @@ private struct TrackRow: View {
                 .opacity(isPlaying ? 1 : 0)
             KeyChip(key: track.key, detected: track.keyIsDetected)
                 .frame(width: TrackColumns.key)
-            EnergyChip(energy: track.tags.energy)
+            EnergyChip(energy: track.energy, detected: track.energyIsDetected)
                 .frame(width: TrackColumns.energy)
             HStack(spacing: 6) {
                 Text(track.title)
@@ -229,15 +245,16 @@ struct KeyChip: View {
 
 struct EnergyChip: View {
     let energy: Int?
+    let detected: Bool
 
     var body: some View {
         if let energy {
-            Text("\(energy)")
+            Text("\(energy)" + (detected ? "*" : ""))
                 .font(.system(.caption, design: .rounded).weight(.bold).monospacedDigit())
                 .foregroundStyle(.black.opacity(0.8))
                 .frame(width: 24, height: 18)
                 .background(Color(nsColor: Theme.color(forEnergy: energy)), in: RoundedRectangle(cornerRadius: 4))
-                .help(String(localized: "Energy \(energy) (Mixed In Key)"))
+                .help(detected ? String(localized: "Energy \(energy) estimated by MADSET (no Mixed In Key tag)") : String(localized: "Energy \(energy) (Mixed In Key)"))
         } else {
             Color.clear.frame(width: 24, height: 18)
         }

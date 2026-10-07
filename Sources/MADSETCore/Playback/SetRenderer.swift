@@ -5,9 +5,15 @@ import Foundation
 /// a bass swap (the incoming lows stay killed until the swap bar, the outgoing ones go after it).
 /// Used by the player in real time and by export offline. Not thread-safe.
 public final class SetRenderer {
+    /// Frames a track fades in or out over where an edit or a jump cuts it, so the cut does not click.
+    public static let declickFrames = 128
+
     public let sampleRate: Double
     public private(set) var layout: SetLayout
     public private(set) var position = 0
+    /// An edit that changes what plays now waits for the next bar line: the layout, that frame, and
+    /// the tracks it stops there.
+    private var pending: (layout: SetLayout, atFrame: Int, stopping: Set<UUID>)?
 
     private let sources: SourceCache
     private let maxFrames: Int
@@ -16,9 +22,11 @@ public final class SetRenderer {
     private let scratch: [UnsafeMutablePointer<Float>]
 
     private final class Voice {
-        let entry: PlacedEntry
+        var entry: PlacedEntry
         let stretcher: StretchedSource
         var equalizers: [DJEqualizer]
+        /// Starts on an edit's bar line, over other tracks, so it fades in.
+        var fadesIn = false
 
         init(entry: PlacedEntry, stretcher: StretchedSource, equalizers: [DJEqualizer]) {
             self.entry = entry
@@ -41,59 +49,126 @@ public final class SetRenderer {
     public var framesPerBar: Double { layout.barDuration * sampleRate }
     public var framesPerBeat: Double { framesPerBar / 4 }
 
+    /// The frame of the bar line an edit waits for; the block before it must end there.
+    public var pendingUpdateFrame: Int? { pending?.atFrame }
+
+    /// Moves to `frame`; an edit waiting for its bar line takes effect at once.
     public func seek(toFrame frame: Int) {
+        if let pending { layout = pending.layout }
+        pending = nil
         position = max(0, frame)
         voices.removeAll()
     }
 
-    /// Switches to an edited layout at the current position. Tracks whose placement is unchanged
-    /// keep playing seamlessly; the others restart where the new layout puts them.
-    public func update(_ newLayout: SetLayout) {
-        let tempoChanged = newLayout.bpm != layout.bpm
-        if tempoChanged {
+    /// Switches to an edited layout and returns how many frames the position moved.
+    ///
+    /// What plays now is protected: an edit that leaves it as it is, give or take a shift by whole
+    /// bars (a track before it removed, say), applies at once and moves the position along with it,
+    /// without a break. One that changes it waits for the next bar line, where only the tracks it
+    /// changes are cut. A tempo change restarts every track, at the same place in what plays when
+    /// the edit keeps it (a track before it removed, say), else on the same bar of the set; it does
+    /// not count as a move, since the position is in other frames anyway.
+    public func update(_ newLayout: SetLayout) -> Int {
+        let current = pending?.layout ?? layout
+        pending = nil
+        if newLayout.bpm != current.bpm {
             let bar = Double(position) / framesPerBar
+            let shift = newLayout.shift(from: layout, atBar: bar) ?? 0
             layout = newLayout
-            position = Int(bar * framesPerBar)
+            position = Int((bar + Double(shift)) * framesPerBar)
             voices.removeAll()
-            return
+            return 0
         }
+        let bar = Double(position) / framesPerBar
+        if let shift = newLayout.shift(from: layout, atBar: bar) {
+            apply(newLayout, shiftedBy: shift)
+            let moved = frame(ofBar: Double(shift))
+            position += moved
+            return moved
+        }
+        let edited = Dictionary(uniqueKeysWithValues: newLayout.entries.map { ($0.id, $0) })
+        let stopping = voices.keys.filter { id in
+            guard let entry = edited[id], let voice = voices[id] else { return true }
+            return entry.file != voice.entry.file || entry.grid != voice.entry.grid || entry.trackOrigin != voice.entry.trackOrigin
+        }
+        let nextBar = frame(ofBar: bar.rounded(.down) + 1)
+        pending = (newLayout, nextBar > position ? nextBar : frame(ofBar: bar.rounded(.down) + 2), Set(stopping))
+        return 0
+    }
+
+    /// Plays `newLayout` from here, keeping every track that moved by `shift` bars along with
+    /// what plays now, so it goes on at the same place in its audio.
+    private func apply(_ newLayout: SetLayout, shiftedBy shift: Int) {
+        let edited = Dictionary(uniqueKeysWithValues: newLayout.entries.map { ($0.id, $0) })
         layout = newLayout
-        let current = Dictionary(uniqueKeysWithValues: newLayout.entries.map { ($0.id, $0) })
-        voices = voices.filter { id, voice in current[id] == voice.entry }
+        voices = voices.compactMapValues { voice in
+            guard let entry = edited[voice.entry.id], entry.file == voice.entry.file, entry.grid == voice.entry.grid,
+                  entry.trackOrigin - voice.entry.trackOrigin == shift else { return nil }
+            voice.entry = entry
+            return voice
+        }
     }
 
     /// Mixes the next `frames` (at most the configured block size) into `left` and `right`.
     public func render(frames: Int, left: UnsafeMutablePointer<Float>, right: UnsafeMutablePointer<Float>) {
         precondition(frames <= maxFrames, "Render block larger than configured")
+        var fadesIn = false
+        if let due = pending, due.atFrame == position {
+            pending = nil
+            voices = voices.filter { !due.stopping.contains($0.key) }
+            layout = due.layout
+            let edited = Dictionary(uniqueKeysWithValues: layout.entries.map { ($0.id, $0) })
+            for voice in voices.values { voice.entry = edited[voice.entry.id] ?? voice.entry }
+            fadesIn = true
+        }
+        precondition(pending.map { position + frames <= $0.atFrame } ?? true, "Render block crosses the bar line an edit waits for")
         left.initialize(repeating: 0, count: frames)
         right.initialize(repeating: 0, count: frames)
         let blockEnd = position + frames
+        let fadesOut = pending.flatMap { $0.atFrame == blockEnd ? $0.stopping : nil } ?? []
         var active = Set<UUID>()
 
         for (index, entry) in layout.entries.enumerated() where entry.grid != nil {
             let start = frame(ofBar: Double(entry.startBar))
             let end = frame(ofBar: Double(entry.endBar))
             guard start < blockEnd, end > position else { continue }
+            let isNew = voices[entry.id] == nil
             guard let voice = voice(for: entry, at: max(position, start)) else { continue }
+            if isNew, fadesIn, start < position { voice.fadesIn = true }
             active.insert(entry.id)
 
             let from = max(position, start) - position
             let to = min(blockEnd, end) - position
             let next = index + 1 < layout.entries.count ? layout.entries[index + 1] : nil
             voice.stretcher.render(into: scratch.map { $0 + from }, frames: to - from)
+            if voice.fadesIn {
+                voice.fadesIn = false
+                Self.ramp(scratch.map { $0 + from }, frames: to - from, fadingIn: true)
+            }
+            if fadesOut.contains(entry.id), to == frames { Self.ramp(scratch.map { $0 + from }, frames: to - from, fadingIn: false) }
             let gainsFrom = gains(for: entry, next: next, atFrame: position + from)
             let gainsTo = gains(for: entry, next: next, atFrame: position + to - 1)
             voice.equalizers[0].process(scratch[0] + from, frames: to - from, from: gainsFrom, to: gainsTo, addingInto: left + from)
             voice.equalizers[1].process(scratch[1] + from, frames: to - from, from: gainsFrom, to: gainsTo, addingInto: right + from)
         }
         voices = voices.filter { active.contains($0.key) }
-        softClip(left, frames)
-        softClip(right, frames)
+        Self.softClip(left, frames)
+        Self.softClip(right, frames)
         position = blockEnd
         prefetchUpcoming()
     }
 
     private func frame(ofBar bar: Double) -> Int { Int((bar * framesPerBar).rounded()) }
+
+    /// Fades the first `declickFrames` of `channels` in, or their last ones out.
+    static func ramp(_ channels: [UnsafeMutablePointer<Float>], frames: Int, fadingIn: Bool) {
+        let length = min(declickFrames, frames)
+        for i in 0..<length {
+            let gain = Float(i) / Float(length)
+            let index = fadingIn ? i : frames - 1 - i
+            for channel in channels { channel[index] *= gain }
+        }
+    }
 
     private func voice(for entry: PlacedEntry, at frame: Int) -> Voice? {
         if let voice = voices[entry.id] { return voice }
@@ -111,17 +186,25 @@ public final class SetRenderer {
         TransitionCurves.gains(for: entry, next: next, atBar: Double(frame) / framesPerBar)
     }
 
+    /// Starts decoding the tracks that play soon after `frame`, so a jump there finds them ready.
+    public func prefetch(from frame: Int) {
+        for entry in upcoming(from: frame) { sources.prefetch(entry.file) }
+    }
+
     private func prefetchUpcoming() {
-        let horizon = position + Int(prefetchSeconds * sampleRate)
-        for entry in layout.entries where entry.grid != nil {
-            let start = frame(ofBar: Double(entry.startBar))
-            let end = frame(ofBar: Double(entry.endBar))
-            if start <= horizon, end > position, voices[entry.id] == nil { sources.prefetch(entry.file) }
+        for entry in upcoming(from: position) where voices[entry.id] == nil { sources.prefetch(entry.file) }
+    }
+
+    /// Tracks that play within the prefetch horizon from `frame`.
+    private func upcoming(from frame: Int) -> [PlacedEntry] {
+        let horizon = frame + Int(prefetchSeconds * sampleRate)
+        return layout.entries.filter { entry in
+            entry.grid != nil && self.frame(ofBar: Double(entry.startBar)) <= horizon && self.frame(ofBar: Double(entry.endBar)) > frame
         }
     }
 
     /// Transparent below 0.8, then a tanh knee that never exceeds 1.
-    private func softClip(_ samples: UnsafeMutablePointer<Float>, _ frames: Int) {
+    static func softClip(_ samples: UnsafeMutablePointer<Float>, _ frames: Int) {
         for i in 0..<frames {
             let x = samples[i]
             let magnitude = abs(x)

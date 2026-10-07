@@ -91,6 +91,9 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     public var lengthBars: Int { cueOutBar - cueInBar }
     public var endBar: Int { startBar + lengthBars }
 
+    /// Bar of the set where the track's own bar 0 falls; each set bar plays the track's bar that far in.
+    public var trackOrigin: Int { startBar - cueInBar }
+
     /// Track bars where `SetEntry.split(atBar:)` leaves the set sounding the same: the first part
     /// keeps the transition in, the second the transition into `next`, and each a bar of its own.
     /// Nil when the entry is too short.
@@ -183,6 +186,15 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
         return (cueInBar + shift, overlap, (bassSwapBar - shift).clamped(to: 0...overlap))
     }
 
+    /// The cue in that starts the first track of the set `bars` later into itself: the rest of the
+    /// set moves along with its end. With no transition in to hide it, it never reaches into silence
+    /// before the track's audio; it keeps a bar of its own before the transition into `next`.
+    public func firstCueIn(trimmedBy bars: Int, before next: PlacedEntry?) -> Int {
+        let earliest = min(0, -cueInBar)
+        let latest = max(0, lengthBars - 1 - (next?.overlapBars ?? 0))
+        return cueInBar + bars.clamped(to: earliest...latest)
+    }
+
     /// Ends this track `bars` later without moving its audio, the next track or its bass swap: the
     /// transition into `next` gets that much longer. It can shrink back through silence past the
     /// track's audio but not grow into more of it; each track keeps a bar of its own, and the
@@ -225,6 +237,27 @@ public struct SetLayout: Sendable, Equatable {
 
     public func time(ofBar bar: Double) -> TimeInterval { bar * barDuration }
     public func bar(atTime time: TimeInterval) -> Double { time / barDuration }
+
+    /// Analyzed tracks that play at `bar`.
+    public func heard(atBar bar: Double) -> [PlacedEntry] {
+        entries.filter { $0.grid != nil && Double($0.startBar) <= bar && bar < Double($0.endBar) }
+    }
+
+    /// Bars that `bar` of `old` moves by in this layout when what plays there goes on unchanged:
+    /// the same tracks, each at the same place in it, whatever the tempo of each layout. Nil when the
+    /// edit changes what plays at `bar`.
+    public func shift(from old: SetLayout, atBar bar: Double) -> Int? {
+        let heard = old.heard(atBar: bar)
+        let edited = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        var shift = 0
+        for (index, entry) in heard.enumerated() {
+            guard let now = edited[entry.id], now.file == entry.file, now.grid == entry.grid else { return nil }
+            let moved = now.trackOrigin - entry.trackOrigin
+            guard index == 0 || moved == shift else { return nil }
+            shift = moved
+        }
+        return Set(self.heard(atBar: bar + Double(shift)).map(\.id)) == Set(heard.map(\.id)) ? shift : nil
+    }
 
     /// What the planner needs to know about a track.
     public struct TrackInfo: Sendable {

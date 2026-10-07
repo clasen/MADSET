@@ -28,19 +28,33 @@ import Testing
             messages += batch.messages.map(\.message)
             times += clockTimes(batch)
         }
-        #expect(Array(messages.prefix(2)) == [.songPosition(0), .start])
-        #expect(!messages.dropFirst(2).contains { $0 != .clock })
+        #expect(messages.first == .start)
+        #expect(!messages.dropFirst().contains { $0 != .clock })
         #expect(abs(times[0] - 100.01) < 1e-9)
         #expect(abs(times[24] - 100.51) < 1e-9)
         for (a, b) in zip(times, times.dropFirst()) { #expect(abs(b - a - 1.0 / 48) < 1e-9) }
     }
 
-    @Test func resumesMidSetAtTheNextSixteenth() {
+    @Test func resumesMidSetWithStartOnTheNextBar() {
         var schedule = MIDIClockSchedule()
-        // Beat 10.1 is heard at 50 s: the next sixteenth is beat 10.25, song position 41, heard at 50.075 s.
-        let batch = schedule.advance(to: position(beat: 10.1, at: 50), now: 50, lookahead: 0.1)
-        #expect(Array(batch.messages.prefix(2).map(\.message)) == [.songPosition(41), .continue])
-        #expect(abs(clockTimes(batch)[0] - 50.075) < 1e-9)
+        // Beat 10.1 is heard at 50 s: the next bar starts at beat 12, heard at 50.95 s.
+        let playhead = position(beat: 10.1, at: 50)
+        #expect(schedule.advance(to: playhead, now: 50, lookahead: lookahead) == MIDIClockSchedule.Batch())
+        #expect(!schedule.isRunning)
+        let batch = schedule.advance(to: playhead, now: 50.93, lookahead: lookahead)
+        #expect(batch.messages.map(\.message) == [.start, .clock])
+        #expect(batch.messages.allSatisfy { abs($0.time - 50.95) < 1e-9 })
+    }
+
+    @Test func startsOnTheBarOfWhereThePlayheadMovedWhileWaiting() {
+        var schedule = MIDIClockSchedule()
+        _ = schedule.advance(to: position(beat: 1, at: 10), now: 10, lookahead: lookahead)
+        // Before bar 1 (beat 4) comes, the playhead jumps to beat 33, so the start waits for beat 36, heard at 12 s.
+        let moved = position(beat: 33, at: 10.5)
+        #expect(schedule.advance(to: moved, now: 11.96, lookahead: lookahead) == MIDIClockSchedule.Batch())
+        let batch = schedule.advance(to: moved, now: 11.98, lookahead: lookahead)
+        #expect(batch.messages.first?.message == .start)
+        #expect(abs((batch.messages.first?.time ?? 0) - 12) < 1e-9)
     }
 
     @Test func stopsWhenPausedAndRestartsAfterAJump() {
@@ -52,10 +66,33 @@ import Testing
         #expect(paused.messages.map(\.message) == [.stop])
         #expect(schedule.advance(to: nil, now: 2, lookahead: lookahead) == MIDIClockSchedule.Batch())
 
-        _ = schedule.advance(to: position(beat: 2, at: 3), now: 3, lookahead: lookahead)
-        let jumped = schedule.advance(to: position(beat: 64, at: 3.1), now: 3.1, lookahead: lookahead)
+        let resumed = schedule.advance(to: position(beat: 4, at: 3), now: 3, lookahead: lookahead)
+        #expect(Array(resumed.messages.prefix(2).map(\.message)) == [.start, .clock])
+        // A jump to beat 64.5: Stop now, Start when bar 17 (beat 68) is heard at 4.85 s.
+        let jumped = schedule.advance(to: position(beat: 64.5, at: 3.1), now: 3.1, lookahead: lookahead)
         #expect(jumped.flush)
-        #expect(Array(jumped.messages.prefix(3).map(\.message)) == [.stop, .songPosition(256), .continue])
+        #expect(jumped.messages.map(\.message) == [.stop])
+        let restarted = schedule.advance(to: position(beat: 64.5, at: 3.1), now: 4.84, lookahead: lookahead)
+        #expect(restarted.messages.first?.message == .start)
+        #expect(abs((restarted.messages.first?.time ?? 0) - 4.85) < 1e-9)
+    }
+
+    @Test func goesOnClockingThroughAJumpByWholeBars() {
+        var schedule = MIDIClockSchedule()
+        var times: [Double] = []
+        var messages: [MIDIClockSchedule.Message] = []
+        // Heard from beat 0 at 0 s; at 2 s, on the line of bar 1, the playhead goes on from bar 10 (beat 40).
+        for step in 0..<800 {
+            let now = Double(step) * 0.005
+            let playhead = now < 2 ? position(beat: 0, at: 0) : position(beat: 40, at: 2)
+            let batch = schedule.advance(to: playhead, now: now, lookahead: lookahead)
+            #expect(!batch.flush)
+            messages += batch.messages.map(\.message)
+            times += clockTimes(batch)
+        }
+        #expect(messages.first == .start)
+        #expect(!messages.dropFirst().contains { $0 != .clock })
+        for (a, b) in zip(times, times.dropFirst()) { #expect(abs(b - a - 1.0 / 48) < 1e-9) }
     }
 
     @Test func followsATempoChangeWithoutRestarting() {
@@ -77,11 +114,5 @@ import Testing
         #expect(!later.contains { $0 != .clock })
         let afterChange = times.filter { $0 > 0.6 }
         for (a, b) in zip(afterChange, afterChange.dropFirst()) { #expect(abs(b - a - 1.0 / 60) < 1e-9) }
-    }
-
-    @Test func songPositionWrapsEvery1024Bars() {
-        var schedule = MIDIClockSchedule()
-        let batch = schedule.advance(to: position(beat: 4 * 1_025, at: 0), now: 0, lookahead: lookahead)
-        #expect(batch.messages.first?.message == .songPosition(16))
     }
 }

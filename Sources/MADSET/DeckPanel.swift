@@ -1,8 +1,9 @@
 import MADSETCore
 import SwiftUI
 
-/// Two decks and the mixer between them, following the playhead. Deck A shows the first timeline
-/// lane and deck B the second: the track playing on it, or else the next one it will play.
+/// Two decks and the mixer between them, following the playhead, or the monitor head in monitor mode.
+/// Deck A shows the first timeline lane and deck B the second: the track playing on it, or else the
+/// next one it will play.
 struct DeckPanel: View {
     let document: SetDocument
     let clips: [TimelineClip]
@@ -10,7 +11,7 @@ struct DeckPanel: View {
 
     var body: some View {
         SwiftUI.TimelineView(.periodic(from: .now, by: 1.0 / 20)) { _ in
-            let time = document.currentTime
+            let time = document.transportTime
             let decks = [0, 1].map { DeckState(lane: $0, clips: clips, time: time) }
             HStack(spacing: 1) {
                 DeckView(lane: 0, deck: decks[0], time: time, seek: document.seek(to:))
@@ -59,7 +60,7 @@ private struct DeckView: View {
                 DeckOverview(clip: clip, color: Theme.decks[lane])
                     .equatable()
                     .overlay { progress(clip) }
-                    .frame(height: 40)
+                    .frame(height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                 details(clip)
             } else {
@@ -103,7 +104,7 @@ private struct DeckView: View {
                     .foregroundStyle(abs(stretch) > 6 ? Color.orange : Color.secondary)
                     .help(String(localized: "Stretched \(String(format: "%+.1f%%", stretch)) to the set tempo"))
             }
-            if let energy = clip.energy { Text("E\(energy)") }
+            if let energy = clip.energyLabel { Text(energy) }
             Text("Bar \(currentBar(clip)) / \(clip.placed.lengthBars)")
             Spacer()
             if deck.onAir {
@@ -178,22 +179,28 @@ private struct DeckOverview: View, Equatable {
 
     var body: some View {
         Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Theme.control.opacity(0.6)))
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.4)))
             let placed = clip.placed
             let length = Double(placed.lengthBars)
             func x(ofBar bar: Double) -> CGFloat { size.width * CGFloat((bar - Double(placed.cueInBar)) / length) }
 
-            for region in transitionRegions() {
+            let transitions = transitionRegions()
+            for region in transitions {
                 let rect = CGRect(x: x(ofBar: region.lowerBound), y: 0, width: x(ofBar: region.upperBound) - x(ofBar: region.lowerBound), height: size.height)
-                context.fill(Path(rect), with: .color(Color(nsColor: Theme.swap).opacity(0.18)))
+                context.fill(Path(rect), with: .color(.white.opacity(0.09)))
             }
-            guard let analysis = clip.analysis else { return }
-            drawWaveform(analysis, in: &context, size: CGSize(width: size.width, height: size.height - 4))
-            for section in analysis.sections {
-                let x0 = max(0, x(ofBar: Double(section.startBar)))
-                let x1 = min(size.width, x(ofBar: Double(section.endBar)))
-                guard x1 > x0 else { continue }
-                context.fill(Path(CGRect(x: x0, y: size.height - 3, width: x1 - x0, height: 3)), with: .color(Color(nsColor: Theme.color(for: section.phase))))
+            if let analysis = clip.analysis {
+                drawWaveform(analysis, in: &context, size: CGSize(width: size.width, height: size.height - 4))
+                for section in analysis.sections {
+                    let x0 = max(0, x(ofBar: Double(section.startBar)))
+                    let x1 = min(size.width, x(ofBar: Double(section.endBar)))
+                    guard x1 > x0 else { continue }
+                    context.fill(Path(CGRect(x: x0, y: size.height - 3, width: x1 - x0, height: 3)), with: .color(Color(nsColor: Theme.color(for: section.phase))))
+                }
+            }
+            for region in transitions {
+                let rect = CGRect(x: x(ofBar: region.lowerBound), y: size.height - 3, width: x(ofBar: region.upperBound) - x(ofBar: region.lowerBound), height: 3)
+                context.fill(Path(rect), with: .color(color))
             }
         }
     }
@@ -247,6 +254,8 @@ private struct MixerView: View {
     let decks: [DeckState]
     let time: TimeInterval
 
+    private var playColor: Color { document.monitorMode ? Color(nsColor: Theme.monitor) : Theme.play }
+
     var body: some View {
         VStack(spacing: 10) {
             HStack(alignment: .center, spacing: 18) {
@@ -260,17 +269,23 @@ private struct MixerView: View {
                         }
                         .help(String(localized: "Back to Start"))
                         Button { document.togglePlayback() } label: {
-                            Image(systemName: document.isPlaying ? "pause.fill" : "play.fill")
+                            Image(systemName: document.transportIsPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(Theme.play)
+                                .foregroundStyle(playColor)
                                 .frame(width: 60, height: 30)
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.play, lineWidth: 2))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(playColor, lineWidth: 2))
                         }
-                        .help(document.isPlaying ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
+                        .help(document.transportIsPlaying ? String(localized: "Pause (Space)") : String(localized: "Play (Space)"))
                     }
                     .buttonStyle(.plain)
                     Text(formatDuration(time)).font(.system(size: 22, weight: .medium)).monospacedDigit()
-                    Text("/ \(formatDuration(layout.duration))").font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                        .foregroundStyle(document.monitorMode ? Color(nsColor: Theme.monitor) : .primary)
+                    if document.monitorMode {
+                        Text("Main \(formatDuration(document.currentTime))")
+                            .textCase(.uppercase).font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(.secondary)
+                    } else {
+                        Text("/ \(formatDuration(layout.duration))").font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                    }
                 }
                 ChannelMeter(levels: decks[1].levels(at: time), color: Theme.decks[1])
             }
@@ -278,6 +293,15 @@ private struct MixerView: View {
         }
         .padding(12)
         .frame(width: 290)
+        .overlay(alignment: .topLeading) {
+            if document.monitorMode {
+                Image(systemName: "headphones")
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundStyle(Color(nsColor: Theme.monitor))
+                    .padding(8)
+                    .help(String(localized: "Monitor Mode"))
+            }
+        }
         .frame(maxHeight: .infinity)
         .background(Theme.panel)
     }
@@ -314,16 +338,17 @@ private struct TempoControl: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            let automatic = document.tempo == nil
-            Button { document.setTempo(automatic ? layout.bpm : nil) } label: {
+            let median = document.medianTempo
+            Button { document.applyMedianTempo() } label: {
                 Text("Auto")
                     .textCase(.uppercase)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(automatic ? .white : .secondary)
+                    .foregroundStyle(.secondary)
                     .frame(width: 52, height: 24)
-                    .background(automatic ? Theme.decks[0] : Theme.control, in: RoundedRectangle(cornerRadius: 5))
+                    .background(Theme.control, in: RoundedRectangle(cornerRadius: 5))
             }
-            .help(automatic ? String(localized: "Median tempo of the tracks. Change it to fix the set tempo.") : String(localized: "Follow the median tempo of the tracks"))
+            .disabled(median == nil || median == layout.bpm)
+            .help(String(localized: "Set the tempo to the median of the tracks. Later edits don't change it."))
             VStack(spacing: 0) {
                 Text(String(format: "%.1f", layout.bpm)).font(.system(size: 17, weight: .semibold)).monospacedDigit()
                 Text("Set BPM").textCase(.uppercase).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)

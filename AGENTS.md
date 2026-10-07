@@ -1,7 +1,7 @@
 # MADSET
 
 Native macOS app for building DJ sets and playing them live. Drag in many audio files: it analyzes
-every track (BPM, beatgrid, kick, phases, key fallback) in parallel and lays out a set that's already
+every track (BPM, beatgrid, kick, phases, key and energy fallback) in parallel and lays out a set that's already
 mixed on a timeline, which you keep editing while it plays. MIDI clock out syncs a groovebox to the set.
 Personal use: runs locally, never distributed, so GPL dependencies are acceptable.
 
@@ -21,6 +21,7 @@ swift build                                      # debug build of everything
 swift test                                       # core test suite (Swift Testing)
 ./scripts/bundle.sh                              # release build wrapped in build/MADSET.app
 open build/MADSET.app
+MADSET_SIGN_IDENTITY="Developer ID Application: …" MADSET_NOTARY_PROFILE=<profile> ./scripts/release.sh   # signed, notarized build/MADSET-<version>.dmg
 swift run -c release madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose]
 ```
 
@@ -32,7 +33,7 @@ Use it after touching anything in `Sources/MADSETCore/Analysis`. The reference l
 
 - `Sources/MADSETCore/` — everything testable: tags, decoding, analysis, cache, scanning.
   - `Config/AppConfig.swift` — the centralized configuration (see below).
-  - `Analysis/` — `TrackAnalyzer` orchestrates `BeatTracker`, `StructureAnalyzer`, `KeyDetector`, `WaveformBuilder`.
+  - `Analysis/` — `TrackAnalyzer` orchestrates `BeatTracker`, `StructureAnalyzer`, `KeyDetector`, `EnergyEstimator`, `WaveformBuilder`.
   - `Set/` — `SetEntry`/`SetLayout` (arrangement on the set's bar axis, automatic phase-aligned
     transitions) and `SetFile` (the `.madset` JSON format).
   - `Playback/` — `SetRenderer` mixes a layout block by block (stretch, DJ EQ, transition curves);

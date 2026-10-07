@@ -16,7 +16,7 @@ It's beta. It works, I use it, and once in a while it will still surprise you.
 curl -fsSL https://raw.githubusercontent.com/clasen/MADSET/main/install.sh | bash
 ```
 
-That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`. To update, close MADSET and run the same command again.
+That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`, then offers to open it. To update, close MADSET and run the same command again.
 
 **It needs Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. No Swift on your Mac? The script runs `xcode-select --install` for you, waits while you click **Install** in the dialog, and carries on when it's done. Xcode installed but its license never accepted? It runs `sudo xcodebuild -license accept`, which asks for your Mac password.
 
@@ -57,11 +57,15 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 
 **Transitions that land on the phrase.** Each track mixes into the previous one in phase, with the bass swap where it belongs. If you don't like it, change the mix-in bar, length, bass swap, fades, cue in and cue out, bar by bar. **Auto** puts it back.
 
-**One tempo for the whole set.** Leave it on the median of your tracks or pick a set BPM, and every track is stretched to it in real time with [Rubber Band](https://breakfastquay.com/rubberband/).
+**One tempo for the whole set.** It starts on the median of your tracks; pick another set BPM or press Auto to take the median again. Edits never change it, so a track removed live doesn't retempo the set. Every track is stretched to it in real time with [Rubber Band](https://breakfastquay.com/rubberband/).
 
 **Bring a groovebox.** MADSET sends MIDI clock, start, stop and song position locked to the set's beats and bars, so whatever is on that port plays in time with the kick and its patterns start on the bar. An offset in Settings makes up for the latency.
 
 **Order by what matters.** Sort the set, or just the selected tracks, by set curve, energy, key (a walk around the Camelot wheel) or BPM. Undo if it's worse.
+
+**Edit while it plays.** Move a transition, slide a track, remove one: what's on air keeps going. An edit that doesn't touch what you're hearing applies without a click; one that does waits for the next bar line and fades only the tracks it changes. Heads land on bars, and moving one while it plays carries on from the new bar at the next bar line, no gap. Left and right jump a phrase, with Option a bar, with Shift to the start of the next or previous track.
+
+**Cue it in your headphones.** Monitor mode (M, or the headphones button) runs a second player on another output, in phase with the main one, so you can try a transition while the room hears the set. **Preview** in the transition editor takes you there a few bars early. A cue mix blends in the main output, lined up with what the room hears, and each output plays on the channel pair you pick, so headphones on outputs 3-4 of an interface just work.
 
 ## Everything else
 
@@ -71,7 +75,8 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 - Duplicate check on import, because that one track always shows up twice
 - Sets live in `~/Music/MADSET`, folders are groups, and everything saves itself. Browse other sets without stopping playback
 - Export the whole mix as WAV or AAC
-- English and Spanish
+- MIDI clock out, locked to the set's beats and bars, so a groovebox plays along and keeps going when the playhead jumps
+- English and Spanish, switchable in Settings
 
 ## Standing on good shoulders
 

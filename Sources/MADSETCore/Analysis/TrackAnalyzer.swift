@@ -21,6 +21,7 @@ public enum TrackAnalyzer {
             sections: structure.sections,
             kickPresence: structure.kickPresence,
             detectedKey: needsKey ? KeyDetector.detect(samples, sampleRate: config.sampleRate) : nil,
+            detectedEnergy: EnergyEstimator.estimate(bands, grid: structure.grid, barCount: structure.kickPresence.count),
             waveform: WaveformBuilder.build(bands, pointsPerSecond: config.waveformPointsPerSecond)
         )
     }

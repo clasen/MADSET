@@ -7,7 +7,7 @@ import Testing
         let grid = BeatGrid(bpm: bpm, firstDownbeat: 0.1, phraseOffsetBars: phraseOffset, confidence: 1)
         return TrackAnalysis(
             duration: 0.1 + Double(bars) * grid.barDuration + 0.5, grid: grid, sections: sections,
-            kickPresence: [], detectedKey: nil, waveform: Waveform(pointsPerSecond: 1, low: Data(), mid: Data(), high: Data())
+            kickPresence: [], detectedKey: nil, detectedEnergy: nil, waveform: Waveform(pointsPerSecond: 1, low: Data(), mid: Data(), high: Data())
         )
     }
 
@@ -69,6 +69,41 @@ import Testing
         #expect(after.entries[1].overlapBars == incoming.overlapBars)
         #expect(after.entries[1].startBar == incoming.startBar - 24)
         #expect(after.entries[2].startBar == before.entries[2].startBar - 24)
+    }
+
+    @Test func anEditKeepsWhatPlaysUnlessItChangesIt() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (middle, last) = (before.entries[1], before.entries[2])
+        // B alone, between its two transitions.
+        let bar = Double(middle.startBar + middle.overlapBars + 12)
+        #expect(before.heard(atBar: bar).map(\.id) == [b])
+
+        // Mixing C in earlier ends B sooner, but B plays on where it is.
+        var nextMixedEarlier = entries
+        nextMixedEarlier[1].cueOutBar = last.previousCueOut(mixingInAt: last.mixInBar(after: middle) - 8, after: middle)
+        #expect(SetLayout(bpm: 124, entries: nextMixedEarlier, tracks: tracks, phraseBars: 8).shift(from: before, atBar: bar) == 0)
+
+        // Without A, which has played, B and what plays there move to the start of the set.
+        let withoutA = SetLayout(bpm: 124, entries: Array(entries.dropFirst()), tracks: tracks, phraseBars: 8)
+        #expect(withoutA.shift(from: before, atBar: bar) == -middle.startBar)
+
+        // Sliding B along keeps playing the same part of it: the set moves under it instead.
+        var slid = entries
+        slid[1].cueInBar = middle.cueInBar + 8
+        slid[1].overlapBars = middle.overlapBars
+        #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: bar) == -8)
+
+        // In the transition from A, sliding B alone would change what plays against A.
+        let mixing = Double(middle.startBar + 2)
+        #expect(before.heard(atBar: mixing).map(\.id) == [a, b])
+        #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: mixing) == nil)
     }
 
     @Test func keepsTheMixInPointInsideTheOutgoingTrack() {
@@ -275,6 +310,32 @@ import Testing
         #expect(incoming.trimmingStart(by: 24, after: outgoing).bassSwap == 0)
         #expect(incoming.trimmingStart(by: 1000, after: outgoing).overlap == 0)
         #expect(incoming.trimmingStart(by: -1000, after: outgoing).cueIn == 0)
+    }
+
+    @Test func trimmingTheFirstStartMovesTheRestOfTheSetAlong() {
+        let a = UUID(), b = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 96, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b)]
+        entries[0].cueOutBar = 64
+        entries[1].overlapBars = 16
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (first, second) = (before.entries[0], before.entries[1])
+
+        entries[0].cueInBar = first.firstCueIn(trimmedBy: 8, before: second)
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(after.entries[0].cueInBar == first.cueInBar + 8)
+        #expect(after.entries[0].startBar == 0)
+        #expect(after.entries[1].startBar == second.startBar - 8)
+        #expect(after.entries[1].overlapBars == second.overlapBars)
+
+        // No silence before the track, and a bar of its own before the transition out.
+        #expect(first.firstCueIn(trimmedBy: -1000, before: second) == 0)
+        #expect(first.firstCueIn(trimmedBy: 1000, before: second) == 64 - 16 - 1)
+        #expect(first.firstCueIn(trimmedBy: 1000, before: nil) == 63)
     }
 
     @Test func trimmingTheEndShortensTheTransitionWithoutMovingAnything() {

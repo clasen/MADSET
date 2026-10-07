@@ -28,11 +28,14 @@ struct Track: Identifiable, Sendable {
     var key: CamelotKey? { tags.key ?? analysis?.detectedKey }
     /// The key came from audio analysis, not from Mixed In Key tags.
     var keyIsDetected: Bool { tags.key == nil && analysis?.detectedKey != nil }
+    var energy: Int? { tags.energy ?? analysis?.detectedEnergy }
+    /// The energy was estimated from audio, not read from Mixed In Key tags.
+    var energyIsDetected: Bool { tags.energy == nil && analysis?.detectedEnergy != nil }
     var bpm: Double? { analysis?.grid.bpm }
     var duration: TimeInterval? { analysis?.duration ?? headerDuration }
     var isPending: Bool { status == .reading || status == .analyzing }
 
     var layoutInfo: SetLayout.TrackInfo { .init(analysis: analysis, duration: headerDuration) }
     var song: DuplicateSongs.Song { .init(file: url, tags: tags) }
-    var orderItem: SetOrder.Item { .init(key: key, energy: tags.energy, bpm: bpm ?? tags.bpm) }
+    var orderItem: SetOrder.Item { .init(key: key, energy: energy, bpm: bpm ?? tags.bpm) }
 }

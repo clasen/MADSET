@@ -89,14 +89,17 @@ public struct TrackAnalysis: Codable, Sendable, Equatable {
     public var kickPresence: [Float]
     /// Key estimated from audio. Only computed when the tags carry none.
     public var detectedKey: CamelotKey?
+    /// Energy (1–10, Mixed In Key's scale) estimated from audio; nil for a track without audible bars.
+    public var detectedEnergy: Int?
     public var waveform: Waveform
 
-    public init(duration: TimeInterval, grid: BeatGrid, sections: [Section], kickPresence: [Float], detectedKey: CamelotKey?, waveform: Waveform) {
+    public init(duration: TimeInterval, grid: BeatGrid, sections: [Section], kickPresence: [Float], detectedKey: CamelotKey?, detectedEnergy: Int?, waveform: Waveform) {
         self.duration = duration
         self.grid = grid
         self.sections = sections
         self.kickPresence = kickPresence
         self.detectedKey = detectedKey
+        self.detectedEnergy = detectedEnergy
         self.waveform = waveform
     }
 }
