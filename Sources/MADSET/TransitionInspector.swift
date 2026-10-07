@@ -175,7 +175,7 @@ private struct BarStepper: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .background(ScrollWheelSteps { wheel(by: $0) })
+        .background(ScrollWheelSteps { steps, _ in wheel(by: steps) })
     }
 
     private static let shape = RoundedRectangle(cornerRadius: 6)
@@ -260,18 +260,23 @@ private struct FieldButtonStyle: ButtonStyle {
 
 /// Turns the scroll wheel over the view into whole steps: one per wheel notch, one per
 /// `pointsPerStep` of trackpad travel. Momentum after the fingers lift is swallowed, not applied.
+/// Each call says whether its steps continue the gesture of the call before: on a trackpad, the same
+/// touch; on a wheel, notches less than `gestureGap` apart.
 /// A local monitor because SwiftUI has no scroll-wheel modifier and an overlay would take the clicks.
-private struct ScrollWheelSteps: NSViewRepresentable {
-    let action: @MainActor (Int) -> Void
+struct ScrollWheelSteps: NSViewRepresentable {
+    let action: @MainActor (_ steps: Int, _ continuing: Bool) -> Void
 
     func makeNSView(context: Context) -> MonitorView { MonitorView() }
 
     func updateNSView(_ view: MonitorView, context: Context) { view.action = action }
 
     final class MonitorView: NSView {
-        var action: @MainActor (Int) -> Void = { _ in }
+        var action: @MainActor (Int, Bool) -> Void = { _, _ in }
         private var monitor: Any?
         private var travel: CGFloat = 0
+        /// Steps were already sent for the trackpad touch going on, and when the last wheel notch was.
+        private var touchStepped = false
+        private var lastNotch: TimeInterval?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -292,19 +297,28 @@ private struct ScrollWheelSteps: NSViewRepresentable {
             // Natural scrolling flips the deltas; undo it so moving up always means more.
             let delta = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
             guard event.hasPreciseScrollingDeltas else {
-                if delta != 0 { action(delta > 0 ? 1 : -1) }
+                guard delta != 0 else { return true }
+                let continuing = lastNotch.map { event.timestamp - $0 < Self.gestureGap } ?? false
+                lastNotch = event.timestamp
+                action(delta > 0 ? 1 : -1, continuing)
                 return true
             }
-            if event.phase == .began { travel = 0 }
+            if event.phase == .began {
+                travel = 0
+                touchStepped = false
+            }
             travel += delta
             let steps = Int(travel / Self.pointsPerStep)
             if steps != 0 {
                 travel -= CGFloat(steps) * Self.pointsPerStep
-                action(steps)
+                action(steps, touchStepped)
+                touchStepped = true
             }
             return true
         }
 
         private static let pointsPerStep: CGFloat = 14
+        /// Longest pause between wheel notches of one gesture.
+        private static let gestureGap: TimeInterval = 0.4
     }
 }

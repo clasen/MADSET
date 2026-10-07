@@ -355,12 +355,18 @@ private struct TempoControl: View {
             }
             .frame(width: 64)
             HStack(spacing: 2) {
-                step("minus", -0.5)
-                step("plus", 0.5)
+                step("minus", -Self.tempoStep)
+                step("plus", Self.tempoStep)
             }
         }
         .buttonStyle(.plain)
+        // Several steps can come before the view updates, so they add to the document's tempo.
+        .background(ScrollWheelSteps { steps, continuing in
+            document.setTempo(document.effectiveTempo + Double(steps) * Self.tempoStep, continuing: continuing)
+        })
     }
+
+    private static let tempoStep = 0.5
 
     private func step(_ symbol: String, _ delta: Double) -> some View {
         Button { document.setTempo(layout.bpm + delta) } label: {

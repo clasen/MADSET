@@ -49,6 +49,8 @@ final class SetDocument {
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
+    /// The last undo step is a tempo change that a gesture may still add to.
+    @ObservationIgnored private var tempoChangeIsOpen = false
     /// The window's undo manager; edits register here.
     @ObservationIgnored weak var undoManager: UndoManager?
 
@@ -248,8 +250,17 @@ final class SetDocument {
         selection.subtract(ids)
     }
 
-    func setTempo(_ bpm: Double) {
-        perform(String(localized: "Change Tempo")) { $0.tempo = min(max(bpm, 60), 200) }
+    /// Sets the tempo. `continuing` a gesture whose last change is still the last undo step, it joins
+    /// that step, so the whole gesture is undone at once.
+    func setTempo(_ bpm: Double, continuing: Bool = false) {
+        let bpm = min(max(bpm, 60), 200)
+        guard continuing, tempoChangeIsOpen else {
+            perform(String(localized: "Change Tempo")) { $0.tempo = bpm }
+            tempoChangeIsOpen = true
+            return
+        }
+        tempo = bpm
+        syncPlayer()
     }
 
     /// Sets the tempo to the median of the tracks, once: later edits leave it.
@@ -291,6 +302,7 @@ final class SetDocument {
     }
 
     private func perform(_ name: String, _ change: (SetDocument) -> Void) {
+        tempoChangeIsOpen = false
         let before = Arrangement(tracks: tracks, tempo: tempo)
         change(self)
         registerUndo(restoring: before, name: name, undoManager)
@@ -311,6 +323,7 @@ final class SetDocument {
 
     /// Restores order, transitions and tempo, keeping the newest analysis of every track.
     private func restore(_ arrangement: Arrangement) {
+        tempoChangeIsOpen = false
         let live = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
         tempo = arrangement.tempo
         tracks = arrangement.tracks.map { saved in
