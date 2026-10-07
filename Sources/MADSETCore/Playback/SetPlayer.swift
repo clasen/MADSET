@@ -244,7 +244,7 @@ private struct Producer {
             // Armed only after the batch, so a seek that came with the start is not preceded by stale audio.
             // A pause since then wins.
             if start {
-                shared.transport.compareExchange(expected: Transport.requested.rawValue, desired: Transport.armed.rawValue, ordering: .acquiringAndReleasing)
+                _ = shared.transport.compareExchange(expected: Transport.requested.rawValue, desired: Transport.armed.rawValue, ordering: .acquiringAndReleasing)
             }
             guard let renderer, shared.freeFrames >= config.blockFrames else {
                 Thread.sleep(forTimeInterval: 0.002)
@@ -473,7 +473,7 @@ private final class SharedState: @unchecked Sendable {
                 baseFrame.store(base, ordering: .releasing)
                 jumpIsPending.store(false, ordering: .releasing)
                 // A later move asked for meanwhile still waits.
-                requestedJump.compareExchange(expected: base + jumpCount.load(ordering: .relaxed), desired: -1, ordering: .acquiringAndReleasing)
+                _ = requestedJump.compareExchange(expected: base + jumpCount.load(ordering: .relaxed), desired: -1, ordering: .acquiringAndReleasing)
             }
         } else {
             clock.stop()
