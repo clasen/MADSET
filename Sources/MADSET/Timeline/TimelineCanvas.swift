@@ -15,13 +15,13 @@ import MADSETCore
 /// - Drag a clip's leading or trailing edge to trim its start or end, which shortens or lengthens
 ///   its transition without moving either track or the bass swap. The first clip's leading edge
 ///   moves its cue in, and the rest of the set with it.
-///   Transitions snap to phrases, ⌥ to bars; they may run into silence before or after a track's
+///   Transitions snap to bars, ⌥ to phrases; they may run into silence before or after a track's
 ///   audio as long as both tracks play in them.
 /// - ⌘-click a clip to add it to the selection or take it out; ⇧-click selects every clip from the
 ///   last one clicked.
 /// - ⌘-drag a clip, or drag the first one when it is alone, to reorder; ⌘-dragging a selected clip
 ///   moves the whole selection.
-/// - Right-click a clip to split it there into two tracks, at the nearest phrase (⌥ bar).
+/// - Right-click a clip to split it there into two tracks, at the nearest bar (⌥ phrase).
 /// - Right-click a clip to remove it, or the selection it belongs to, from the set; ⌘⌫ removes the
 ///   selection (see `ContentView`).
 /// - Drag the BASS marker to move the bass swap.
@@ -119,10 +119,10 @@ final class TimelineCanvas: NSView {
         /// Where the lows swap within a transition.
         case bassSwap(PlacedEntry)
 
-        func snapBars(phraseBars: Int, fine: Bool) -> Int {
+        func snapBars(phraseBars: Int, coarse: Bool) -> Int {
             switch self {
             case .bassSwap: 1
-            case .slide, .transition, .trimStart, .trimFirstStart, .trimEnd: fine ? 1 : phraseBars
+            case .slide, .transition, .trimStart, .trimFirstStart, .trimEnd: coarse ? phraseBars : 1
             }
         }
 
@@ -417,7 +417,7 @@ final class TimelineCanvas: NSView {
         case .adjust(let adjustment, let startX, _):
             if case .transition = adjustment { NSCursor.closedHand.set() }
             let barWidth = CGFloat((clips.first?.barDuration ?? 1) * pointsPerSecond)
-            let snap = adjustment.snapBars(phraseBars: phraseBars, fine: event.modifierFlags.contains(.option))
+            let snap = adjustment.snapBars(phraseBars: phraseBars, coarse: event.modifierFlags.contains(.option))
             let bars = Int((Double((x - startX) / barWidth) / Double(snap)).rounded()) * snap
             let edit = adjustment.edit(movedBars: bars)
             gesture = .adjust(adjustment, startX: startX, edit: edit)
@@ -458,7 +458,7 @@ final class TimelineCanvas: NSView {
         if !selectedIDs.contains(clip.id) { select([clip.id], anchor: clip.id) }
         let menu = NSMenu()
         if selectedIDs.count == 1, let grid = clip.analysis?.grid {
-            addSplitItem(to: menu, for: clip, grid: grid, at: point, fine: event.modifierFlags.contains(.option))
+            addSplitItem(to: menu, for: clip, grid: grid, at: point, coarse: event.modifierFlags.contains(.option))
         }
         let title = selectedIDs.count == 1 ? String(localized: "Remove Track") : String(localized: "Remove \(selectedIDs.count) Tracks")
         let remove = menu.addItem(withTitle: title, action: #selector(removeFromMenu(_:)), keyEquivalent: "\u{8}")
@@ -468,14 +468,14 @@ final class TimelineCanvas: NSView {
         return menu
     }
 
-    private func addSplitItem(to menu: NSMenu, for clip: TimelineClip, grid: BeatGrid, at point: CGPoint, fine: Bool) {
+    private func addSplitItem(to menu: NSMenu, for clip: TimelineClip, grid: BeatGrid, at point: CGPoint, coarse: Bool) {
         let barWidth = clip.barDuration * pointsPerSecond
         let pointed = Double(clip.placed.cueInBar) + Double(point.x - rect(for: clip).minX) / barWidth
         let phrase = Double(phraseBars)
         let offset = Double(grid.phraseOffsetBars)
-        let snapped = fine
-            ? Int(pointed.rounded())
-            : Int(offset + ((pointed - offset) / phrase).rounded() * phrase)
+        let snapped = coarse
+            ? Int(offset + ((pointed - offset) / phrase).rounded() * phrase)
+            : Int(pointed.rounded())
         let range = clip.placed.splitRange(before: clip.next)
         let bar = range.map { snapped.clamped(to: $0) } ?? snapped
         let item = menu.addItem(withTitle: String(localized: "Split at Bar \(bar)"), action: range == nil ? nil : #selector(splitFromMenu(_:)), keyEquivalent: "")
