@@ -196,3 +196,4 @@
 "Device Problem" = "Problema con un dispositivo";
 "MIDI is not available: %@" = "MIDI no está disponible: %@";
 "Could not switch the output: %@" = "No se pudo cambiar la salida: %@";
+"Could not switch the output: it is not available right now." = "No se pudo cambiar la salida: no está disponible en este momento.";

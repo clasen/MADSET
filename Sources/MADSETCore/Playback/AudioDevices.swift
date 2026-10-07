@@ -32,14 +32,15 @@ public enum AudioDevices {
         }
     }
 
-    /// The device sound goes to when no other is chosen.
-    public static func defaultOutput() -> AudioDeviceID {
+    /// The device sound goes to when no other is chosen; nil while there is none, as for a moment while
+    /// the system switches devices.
+    public static func defaultOutput() -> AudioDeviceID? {
         var id = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         var address = systemAddress(kAudioHardwarePropertyDefaultOutputDevice)
         let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id)
         precondition(status == noErr, "Could not read the default output device (\(status))")
-        return id
+        return id == kAudioObjectUnknown ? nil : id
     }
 
     /// Calls `onChange` on the main queue whenever a device comes or goes, or the default output changes.

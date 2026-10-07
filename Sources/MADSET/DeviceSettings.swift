@@ -130,7 +130,7 @@ final class DeviceSettings {
     /// Plays `player` through the main output from now on, and through every later choice.
     func register(_ player: SetPlayer) {
         players.add(player)
-        apply(mainTarget, to: player)
+        if let target = mainTarget { apply(target, to: player) }
     }
 
     /// Sends clock along `player`'s playhead; called when it starts playing.
@@ -157,7 +157,7 @@ final class DeviceSettings {
     var hasMonitorOutput: Bool { monitorTarget != nil }
 
     /// Whether previews are heard through the main output too, by everyone.
-    var monitorIsMainOutput: Bool { monitorTarget == mainTarget }
+    var monitorIsMainOutput: Bool { monitorTarget != nil && monitorTarget == mainTarget }
 
     /// The connected output with this UID.
     func output(_ uid: String?) -> AudioOutputDevice? {
@@ -173,9 +173,10 @@ final class DeviceSettings {
     }
 
     /// The chosen main output while it is connected, else the system's default; on its first pair
-    /// when the chosen one is gone, since the set must go on.
-    private var mainTarget: Target {
-        guard let device = output(mainOutput) else { return Target(device: AudioDevices.defaultOutput(), channel: 0) }
+    /// when the chosen one is gone, since the set must go on. None while the system has no default
+    /// either, for a moment while it switches devices; players stay where they are until it has one.
+    private var mainTarget: Target? {
+        guard let device = output(mainOutput) else { return AudioDevices.defaultOutput().map { Target(device: $0, channel: 0) } }
         return Target(device: device.id, channel: device.firstChannels.contains(mainChannel) ? mainChannel : 0)
     }
 
@@ -187,7 +188,7 @@ final class DeviceSettings {
     }
 
     private func applyMainOutput() {
-        let target = mainTarget
+        guard let target = mainTarget else { return }
         for player in players.allObjects { apply(target, to: player) }
     }
 
@@ -213,6 +214,8 @@ final class DeviceSettings {
     private func apply(_ target: Target, to player: SetPlayer) {
         do {
             try player.setOutput(target.device, firstChannel: target.channel)
+        } catch SetPlayer.Failure.outputUnavailable {
+            self.error = String(localized: "Could not switch the output: it is not available right now.")
         } catch {
             self.error = String(localized: "Could not switch the output: \(error.localizedDescription)")
         }

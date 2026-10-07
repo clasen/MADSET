@@ -20,6 +20,11 @@ public final class SetPlayer: @unchecked Sendable {
     private let firstChannel = Atomic<Int>(0)
     private var configurationObserver: NSObjectProtocol?
 
+    public enum Failure: Error {
+        /// The output device has no format to play in, as while it is being switched or removed.
+        case outputUnavailable
+    }
+
     /// `engine` is injectable so tests can render without a sound device (manual rendering mode).
     /// Following `reference`, every start waits for a beat of it while it plays, at the same place in
     /// the bar, and `setLevels` mixes in what it plays.
@@ -47,7 +52,7 @@ public final class SetPlayer: @unchecked Sendable {
         }
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: format)
-        connectOutput()
+        try connectOutput()
         try engine.start()
         clock.setOutputLatency(engine.outputNode.presentationLatency)
 
@@ -55,8 +60,7 @@ public final class SetPlayer: @unchecked Sendable {
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { [weak self] _ in
-            guard let self else { return }
-            connectOutput()
+            guard let self, (try? connectOutput()) != nil else { return }
             try? engine.start()
             clock.setOutputLatency(engine.outputNode.presentationLatency)
         }
@@ -140,23 +144,26 @@ public final class SetPlayer: @unchecked Sendable {
     }
 
     /// Plays through `device`, on its channel `firstChannel` (from 0) and the next one, from now on;
-    /// what is buffered keeps its place.
+    /// what is buffered keeps its place. Switching again to where a failed switch left it retries it.
     public func setOutput(_ device: AudioDeviceID, firstChannel: Int) throws {
         let output = engine.outputNode
-        guard output.auAudioUnit.deviceID != device || self.firstChannel.load(ordering: .acquiring) != firstChannel else { return }
+        guard output.auAudioUnit.deviceID != device || self.firstChannel.load(ordering: .acquiring) != firstChannel
+            || !engine.isRunning else { return }
         engine.stop()
         try output.auAudioUnit.setDeviceID(device)
         self.firstChannel.store(firstChannel, ordering: .releasing)
-        connectOutput()
+        try connectOutput()
         try engine.start()
         clock.setOutputLatency(output.presentationLatency)
     }
 
     /// Feeds the device the set in stereo, on the chosen pair of its channels; the others stay silent.
     /// A device that has no such pair (it changed under the player) gets silence until `setOutput` again.
-    private func connectOutput() {
+    /// Throws for a device with no format, which the engine refuses to connect to.
+    private func connectOutput() throws {
         let output = engine.outputNode
         let device = output.outputFormat(forBus: 0)
+        guard device.sampleRate > 0, device.channelCount > 0 else { throw Failure.outputUnavailable }
         guard let stereo = AVAudioFormat(standardFormatWithSampleRate: device.sampleRate, channels: 2) else {
             preconditionFailure("Unsupported output format")
         }
