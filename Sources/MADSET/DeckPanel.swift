@@ -104,7 +104,7 @@ private struct DeckView: View {
                     .foregroundStyle(abs(stretch) > 6 ? Color.orange : Color.secondary)
                     .help(String(localized: "Stretched \(String(format: "%+.1f%%", stretch)) to the set tempo"))
             }
-            if let energy = clip.energy { Text("E\(energy)") }
+            if let energy = clip.energyLabel { Text(energy) }
             Text("Bar \(currentBar(clip)) / \(clip.placed.lengthBars)")
             Spacer()
             if deck.onAir {

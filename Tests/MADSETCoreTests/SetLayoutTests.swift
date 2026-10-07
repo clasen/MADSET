@@ -7,7 +7,7 @@ import Testing
         let grid = BeatGrid(bpm: bpm, firstDownbeat: 0.1, phraseOffsetBars: phraseOffset, confidence: 1)
         return TrackAnalysis(
             duration: 0.1 + Double(bars) * grid.barDuration + 0.5, grid: grid, sections: sections,
-            kickPresence: [], detectedKey: nil, waveform: Waveform(pointsPerSecond: 1, low: Data(), mid: Data(), high: Data())
+            kickPresence: [], detectedKey: nil, detectedEnergy: nil, waveform: Waveform(pointsPerSecond: 1, low: Data(), mid: Data(), high: Data())
         )
     }
 

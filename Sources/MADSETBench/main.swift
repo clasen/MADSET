@@ -95,6 +95,13 @@ if forceKeyDetection {
     print("key vs tag (\(compared)): exact \(exact)  relative \(relative)  fifth \(neighbor)")
 }
 
+var energyErrors: [Int] = []
+for (row, a) in successes {
+    guard let tag = row.tags?.energy, let detected = a.detectedEnergy else { continue }
+    energyErrors.append(abs(tag - detected))
+}
+print("energy vs tag (\(energyErrors.count)): exact \(energyErrors.filter { $0 == 0 }.count)  ±1 \(energyErrors.filter { $0 <= 1 }.count)")
+
 var phaseCounts: [Phase: Int] = [:]
 for (_, a) in successes { for s in a.sections { phaseCounts[s.phase, default: 0] += 1 } }
 print("sections: " + Phase.allCases.map { "\($0.rawValue) \(phaseCounts[$0, default: 0])" }.joined(separator: "  "))
@@ -107,7 +114,7 @@ if !mismatches.isEmpty {
 for row in rows { if case .failure = row.result { report(row) } }
 
 if printsOrder {
-    let items = successes.map { row, a in SetOrder.Item(key: row.tags?.key ?? a.detectedKey, energy: row.tags?.energy, bpm: a.grid.bpm) }
+    let items = successes.map { row, a in SetOrder.Item(key: row.tags?.key ?? a.detectedKey, energy: row.tags?.energy ?? a.detectedEnergy, bpm: a.grid.bpm) }
     let t0 = ContinuousClock.now
     let order = SetOrder.order(items, by: .setCurve, after: nil, peakPosition: config.ordering.peakPosition)
     let seconds = (ContinuousClock.now - t0) / .seconds(1)

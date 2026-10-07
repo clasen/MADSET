@@ -130,7 +130,7 @@ private struct ColumnHeader: View {
             Text("#").frame(width: TrackColumns.position, alignment: .trailing)
             Color.clear.frame(width: TrackColumns.playing)
             Text("Key").frame(width: TrackColumns.key)
-            Text("E").frame(width: TrackColumns.energy).help(String(localized: "Energy (Mixed In Key)"))
+            Text("E").frame(width: TrackColumns.energy).help(String(localized: "Energy (Mixed In Key; * estimated by MADSET)"))
             Text("Title").frame(maxWidth: .infinity, alignment: .leading)
             Text("Artist").frame(maxWidth: .infinity, alignment: .leading)
             Text("Genre").frame(width: TrackColumns.genre, alignment: .leading)
@@ -167,7 +167,7 @@ private struct TrackRow: View {
                 .opacity(isPlaying ? 1 : 0)
             KeyChip(key: track.key, detected: track.keyIsDetected)
                 .frame(width: TrackColumns.key)
-            EnergyChip(energy: track.tags.energy)
+            EnergyChip(energy: track.energy, detected: track.energyIsDetected)
                 .frame(width: TrackColumns.energy)
             HStack(spacing: 6) {
                 Text(track.title)
@@ -245,15 +245,16 @@ struct KeyChip: View {
 
 struct EnergyChip: View {
     let energy: Int?
+    let detected: Bool
 
     var body: some View {
         if let energy {
-            Text("\(energy)")
+            Text("\(energy)" + (detected ? "*" : ""))
                 .font(.system(.caption, design: .rounded).weight(.bold).monospacedDigit())
                 .foregroundStyle(.black.opacity(0.8))
                 .frame(width: 24, height: 18)
                 .background(Color(nsColor: Theme.color(forEnergy: energy)), in: RoundedRectangle(cornerRadius: 4))
-                .help(String(localized: "Energy \(energy) (Mixed In Key)"))
+                .help(detected ? String(localized: "Energy \(energy) estimated by MADSET (no Mixed In Key tag)") : String(localized: "Energy \(energy) (Mixed In Key)"))
         } else {
             Color.clear.frame(width: 24, height: 18)
         }

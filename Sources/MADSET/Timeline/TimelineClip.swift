@@ -16,6 +16,7 @@ struct TimelineClip: Identifiable {
     let bpm: Double?
     let setBPM: Double
     let energy: Int?
+    let energyIsDetected: Bool
     let analysis: TrackAnalysis?
     let isPending: Bool
     let failure: String?
@@ -31,6 +32,9 @@ struct TimelineClip: Identifiable {
 
     /// Tempo change applied to the track, in percent.
     var stretchPercent: Double? { bpm.map { (setBPM / $0 - 1) * 100 } }
+
+    /// "E6", or "E6*" when the energy was estimated from audio.
+    var energyLabel: String? { energy.map { "E\($0)" + (energyIsDetected ? "*" : "") } }
 
     static func clips(for layout: SetLayout, tracks: [Track]) -> [TimelineClip] {
         precondition(layout.entries.count == tracks.count, "Layout and tracks out of sync")
@@ -50,7 +54,8 @@ struct TimelineClip: Identifiable {
                 keyIsDetected: track.keyIsDetected,
                 bpm: track.bpm,
                 setBPM: layout.bpm,
-                energy: track.tags.energy,
+                energy: track.energy,
+                energyIsDetected: track.energyIsDetected,
                 analysis: track.analysis,
                 isPending: track.isPending,
                 failure: failure

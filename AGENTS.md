@@ -1,7 +1,7 @@
 # MADSET
 
 Native macOS app for building long DJ sets by dragging in many audio files. It analyzes every
-track (BPM, beatgrid, kick, phases, key fallback) in parallel and lays the set out on a timeline.
+track (BPM, beatgrid, kick, phases, key and energy fallback) in parallel and lays the set out on a timeline.
 Personal use: runs locally, never distributed, so GPL dependencies are acceptable.
 
 ## Stack
@@ -32,7 +32,7 @@ Use it after touching anything in `Sources/MADSETCore/Analysis`. The reference l
 
 - `Sources/MADSETCore/` — everything testable: tags, decoding, analysis, cache, scanning.
   - `Config/AppConfig.swift` — the centralized configuration (see below).
-  - `Analysis/` — `TrackAnalyzer` orchestrates `BeatTracker`, `StructureAnalyzer`, `KeyDetector`, `WaveformBuilder`.
+  - `Analysis/` — `TrackAnalyzer` orchestrates `BeatTracker`, `StructureAnalyzer`, `KeyDetector`, `EnergyEstimator`, `WaveformBuilder`.
   - `Set/` — `SetEntry`/`SetLayout` (arrangement on the set's bar axis, automatic phase-aligned
     transitions) and `SetFile` (the `.madset` JSON format).
   - `Playback/` — `SetRenderer` mixes a layout block by block (stretch, DJ EQ, transition curves);

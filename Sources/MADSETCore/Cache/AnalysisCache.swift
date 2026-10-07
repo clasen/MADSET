@@ -4,7 +4,7 @@ import Foundation
 /// On-disk store of analysis results, keyed by file path, size, modification date and analysis settings.
 public struct AnalysisCache: Sendable {
     /// Bump when `TrackAnalysis` or the analysis algorithms change, so stale results are not reused.
-    static let schemaVersion = 3
+    static let schemaVersion = 4
 
     public let directory: URL
     private let analysis: AppConfig.Analysis

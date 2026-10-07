@@ -105,3 +105,15 @@ private let config = AppConfig.current.analysis
         #expect(waveform.low.max() == 255)
     }
 }
+
+@Suite struct EnergyTests {
+    @Test func quieterMixOfTheSameTrackRatesLower() throws {
+        let loud = Synth.track(bpm: 126, bars: 32, leadIn: 0.2) { _ in [.kick, .bass, .hats, .pad] }
+        let quiet = loud.map { $0 * 0.1 }
+        let loudEnergy = try #require(try TrackAnalyzer.analyze(samples: loud, needsKey: false, config: config).detectedEnergy)
+        let quietEnergy = try #require(try TrackAnalyzer.analyze(samples: quiet, needsKey: false, config: config).detectedEnergy)
+
+        #expect((1...10).contains(loudEnergy) && (1...10).contains(quietEnergy))
+        #expect(quietEnergy < loudEnergy)
+    }
+}

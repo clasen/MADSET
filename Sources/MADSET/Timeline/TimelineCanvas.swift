@@ -925,7 +925,7 @@ final class TimelineCanvas: NSView {
         if header.width >= 150 {
             let tempo = clip.bpm.map { String(format: "%.1f", $0) }
             let stretch = clip.stretchPercent.map { String(format: "%+.1f%%", $0) }
-            let meta = [tempo, stretch, clip.energy.map { "E\($0)" }].compactMap { $0 }.joined(separator: "  ")
+            let meta = [tempo, stretch, clip.energyLabel].compactMap { $0 }.joined(separator: "  ")
             let heavyStretch = abs(clip.stretchPercent ?? 0) > 6
             let metaText = NSAttributedString(string: meta, attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
