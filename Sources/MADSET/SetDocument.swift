@@ -352,6 +352,13 @@ final class SetDocument {
         refreshTransport()
     }
 
+    /// Moves the playhead, or the monitor head while monitor mode is on, to where `id` starts in the set.
+    func seek(toStartOf id: Track.ID) {
+        let layout = layout
+        guard let entry = layout.entries.first(where: { $0.id == id }) else { return }
+        seek(to: layout.time(ofBar: Double(entry.startBar)))
+    }
+
     /// Moves the playhead, or the monitor head in monitor mode, `bars` bars. A playing one goes on at
     /// its next bar line that many bars past it, without a gap; moves made before it gets there add up.
     func move(byBars bars: Int) {

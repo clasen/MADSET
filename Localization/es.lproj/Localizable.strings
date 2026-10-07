@@ -135,6 +135,7 @@
 "bars %lld–%lld" = "compases %lld–%lld";
 "Part of a split track" = "Parte de un tema dividido";
 "Split at Bar %lld" = "Dividir en el compás %lld";
+"Move Playhead to Track Start" = "Llevar el cursor al inicio del tema";
 
 /* Errors */
 "No rhythm found (a track without kick, or silence?)" = "No se encontró ritmo (¿tema sin kick o silencio?)";

@@ -75,6 +75,10 @@ struct TrackListView: View {
         }
         .contextMenu(forSelectionType: Track.ID.self) { ids in
             if !ids.isEmpty {
+                if ids.count == 1, let id = ids.first {
+                    Button("Move Playhead to Track Start") { document.seek(toStartOf: id) }
+                    Divider()
+                }
                 Button("Move to Start") { document.moveToStart(ids) }
                 Button("Move to End") { document.move(ids, before: nil) }
                 Menu(ids.count < 2 ? String(localized: "Order Set") : String(localized: "Order \(ids.count) Tracks")) {
