@@ -18,6 +18,7 @@ struct ContentView: View {
     @AppStorage("showsSetsSidebar") private var showsSetsSidebar = false
     @State private var timelineHeight: CGFloat = 0
     @State private var listHeight: CGFloat = 0
+    @FocusState private var isSidebarFocused: Bool
 
     private static let minTimelineHeight: CGFloat = 200
     private static let minTrackListHeight: CGFloat = 150
@@ -48,7 +49,7 @@ struct ContentView: View {
             // The list takes its height first and gives it back only once the timeline is at its minimum.
             HSplitView {
                 if showsSetsSidebar {
-                    SetsSidebar()
+                    SetsSidebar(isFocused: $isSidebarFocused)
                         .frame(minWidth: 180, idealWidth: 230, maxWidth: 300)
                 }
                 TrackListView(document: browsed, layout: browsed === document ? layout : browsed.layout, isLoaded: browsed === document,
@@ -71,10 +72,15 @@ struct ContentView: View {
         .background(KeyMonitor(keyCode: KeyMonitor.right, modifiers: .shift) { document.moveToTrack(forward: true) })
         // ⌘ so a stray Delete never drops a track. The list and the timeline share the selection
         // while the list shows the loaded set; otherwise it removes from the one with the focus.
-        .background(KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
-            let target = SetDocument.selectionTarget(loaded: document, browsed: browsed)
-            target.remove(target.selection)
-        })
+        // The sets sidebar deletes its own selection while it has the focus.
+        .background {
+            if !isSidebarFocused {
+                KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
+                    let target = SetDocument.selectionTarget(loaded: document, browsed: browsed)
+                    target.remove(target.selection)
+                }
+            }
+        }
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 3).padding(4).allowsHitTesting(false)
@@ -314,7 +320,7 @@ private struct PaneSplitter: View {
 
 /// A key that acts anywhere in the window except while text is being edited; holding it acts once.
 /// A local monitor sees the key before the focused list or button, which would otherwise take it.
-private struct KeyMonitor: NSViewRepresentable {
+struct KeyMonitor: NSViewRepresentable {
     static let space: UInt16 = 49
     static let delete: UInt16 = 51
     static let m: UInt16 = 46

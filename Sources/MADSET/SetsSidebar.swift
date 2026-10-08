@@ -8,6 +8,7 @@ import SwiftUI
 /// onto a group, onto a set to join its group, or onto the header to leave every group; tracks drag
 /// onto a set to add them to it. Deleting a group keeps its sets; deleting a set moves it to the Trash.
 struct SetsSidebar: View {
+    var isFocused: FocusState<Bool>.Binding
     @State private var library = SetLibraryModel.shared
     @State private var renaming: SetLibrary.Item?
     @State private var newName = ""
@@ -53,6 +54,14 @@ struct SetsSidebar: View {
             menu(for: urls)
         } primaryAction: { urls in
             if let url = urls.first, urls.count == 1 { load(url) }
+        }
+        .focused(isFocused)
+        .background {
+            if isFocused.wrappedValue {
+                KeyMonitor(keyCode: KeyMonitor.delete, modifiers: .command) {
+                    delete(browsingSelection.wrappedValue.flatMap(find).map { [$0] } ?? [])
+                }
+            }
         }
     }
 
@@ -118,11 +127,15 @@ struct SetsSidebar: View {
         }
         if !items.isEmpty {
             Divider()
-            Button("Delete") {
-                library.ungroup(items.filter(\.isGroup).map(\.url))
-                trashing = items.filter { !$0.isGroup }
-            }
+            Button("Delete") { delete(items) }
+                .keyboardShortcut(.delete, modifiers: .command)
         }
+    }
+
+    /// Groups go at once and keep their sets; sets go to the Trash once confirmed.
+    private func delete(_ items: [SetLibrary.Item]) {
+        library.ungroup(items.filter(\.isGroup).map(\.url))
+        trashing = items.filter { !$0.isGroup }
     }
 
     private func find(_ url: URL) -> SetLibrary.Item? {
