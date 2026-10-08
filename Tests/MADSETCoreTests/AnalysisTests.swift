@@ -5,7 +5,7 @@ import Testing
 private let config = AppConfig.current.analysis
 
 @Suite struct BeatGridTests {
-    @Test(arguments: [(bpm: 126.0, leadIn: 0.31), (bpm: 140.0, leadIn: 0.05), (bpm: 92.5, leadIn: 1.2)])
+    @Test(arguments: [(bpm: 126.0, leadIn: 0.31), (bpm: 140.0, leadIn: 0.05), (bpm: 92.5, leadIn: 1.2), (bpm: 84.0, leadIn: 0.6)])
     func findsTempoAndPhaseOfKicks(bpm: Double, leadIn: Double) throws {
         let samples = Synth.track(bpm: bpm, bars: 48, leadIn: leadIn) { _ in [.kick, .bass, .hats] }
         let analysis = try TrackAnalyzer.analyze(samples: samples, needsKey: false, config: config)

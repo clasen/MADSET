@@ -7,7 +7,8 @@ public struct AppConfig: Sendable {
         public var sampleRate: Double
         /// How many tracks are decoded and analyzed at the same time.
         public var maxConcurrentTracks: Int
-        /// Tempo search range. Electronic 4x4 material lives well inside it.
+        /// Tempo search range: one octave, so every tempo has a single candidate and double or half
+        /// tempo never competes with it. A track faster than `maxBPM` is read at half its tempo.
         public var minBPM: Double
         public var maxBPM: Double
         /// Bars per phrase; sections are aligned to this grid.
@@ -80,8 +81,8 @@ public struct AppConfig: Sendable {
         analysis: Analysis(
             sampleRate: 22_050,
             maxConcurrentTracks: 12,
-            minBPM: 88,
-            maxBPM: 175,
+            minBPM: 78,
+            maxBPM: 156,
             phraseBars: 8,
             waveformPointsPerSecond: 100
         ),
