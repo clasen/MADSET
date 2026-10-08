@@ -49,6 +49,41 @@ import Testing
         #expect(layout.entries[1].fadeOutBars == 0)
     }
 
+    @Test func neverPlaysMoreThanTwoTracksAtOnce() {
+        let ids = (0..<4).map { _ in UUID() }
+        let tracks = Dictionary(uniqueKeysWithValues: ids.map { ($0, SetLayout.TrackInfo(analysis: analysis(bars: 12, sections: []), duration: nil)) })
+        var entries = ids.map(entry)
+        entries[3].overlapBars = 64
+        let layout = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        for bar in 0..<layout.totalBars {
+            #expect(layout.heard(atBar: Double(bar)).count <= 2, "bar \(bar)")
+        }
+        // Each track keeps a bar of its own between its transition in and its transition out.
+        for (previous, next) in zip(layout.entries, layout.entries.dropFirst()) {
+            #expect(next.startBar >= previous.startBar + previous.overlapBars + 1)
+        }
+    }
+
+    @Test func editsKeepTheOutgoingTrackABarAfterItsOwnTransitionIn() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 40, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[2].cueInBar = 16
+        let layout = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming) = (layout.entries[1], layout.entries[2])
+        let ownStart = outgoing.cueInBar + outgoing.overlapBars + 1
+        #expect(outgoing.overlapBars == 16 && incoming.overlapBars == 16)
+
+        #expect(incoming.mixInRange(after: outgoing).lowerBound == ownStart)
+        #expect(incoming.movingTransition(by: -1000, after: outgoing).previousCueOut == ownStart + incoming.overlapBars)
+        #expect(incoming.trimmingStart(by: -1000, after: outgoing).overlap == outgoing.lengthBars - outgoing.overlapBars - 1)
+    }
+
     @Test func movesTheMixInPointKeepingTheTransitionLength() {
         let a = UUID(), b = UUID(), c = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
@@ -106,6 +141,26 @@ import Testing
         #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: mixing) == nil)
     }
 
+    @Test func stepsToTheTrackBeforeOrAfterTheHead() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        let layout = SetLayout(bpm: 124, entries: [entry(a), entry(b), entry(c)], tracks: tracks, phraseBars: 8)
+        let (first, middle, last) = (layout.entries[0].startBar, layout.entries[1].startBar, layout.entries[2].startBar)
+        let landed = Double(middle)
+
+        // A playing head that just landed on B, or a pending move a hair off B's bar line, goes back to A.
+        for bar in [landed, landed + 0.3, landed - 1e-9, landed + 1e-9, landed + 20] {
+            #expect(layout.trackStart(from: bar, forward: false) == first)
+        }
+        #expect(layout.trackStart(from: landed + 0.3, forward: true) == last)
+        #expect(layout.trackStart(from: Double(first) + 5, forward: false) == first)
+        #expect(layout.trackStart(from: Double(last) + 1, forward: true) == nil)
+    }
+
     @Test func keepsTheMixInPointInsideTheOutgoingTrack() {
         let a = UUID(), b = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
@@ -132,8 +187,9 @@ import Testing
         let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
         let (outgoing, incoming) = (before.entries[0], before.entries[1])
 
-        entries[1].cueInBar = incoming.cueIn(movedBy: 8, after: outgoing)
-        entries[1].overlapBars = incoming.overlapBars
+        let slid = incoming.sliding(by: 8, after: outgoing)
+        entries[1].cueInBar = slid.cueIn
+        entries[1].overlapBars = slid.overlap
         let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
 
         #expect(after.entries[0] == before.entries[0])
@@ -145,19 +201,97 @@ import Testing
         #expect(after.entries[2].startBar == before.entries[2].startBar + 8)
     }
 
-    @Test func movingATrackUnderItsTransitionKeepsABarOfItsAudioInIt() {
+    @Test func movingATrackWithoutATransitionEarlierOpensOne() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[0].cueOutBar = 64
+        entries[1].cueInBar = 8
+        entries[1].overlapBars = 0
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming) = (before.entries[0], before.entries[1])
+
+        let slid = incoming.sliding(by: -8, after: outgoing)
+        #expect(slid.cueIn == 8 && slid.overlap == 8 && slid.bassSwap == 4)
+        entries[1].cueInBar = slid.cueIn
+        entries[1].overlapBars = slid.overlap
+        entries[1].bassSwapBar = slid.bassSwap
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(after.entries[0] == outgoing)
+        #expect(after.entries[1].startBar == incoming.startBar - 8)
+        #expect(after.entries[2].startBar == before.entries[2].startBar - 8)
+        // The previous track keeps a bar of its own; later, the track still slides under its start.
+        #expect(incoming.sliding(by: -1000, after: outgoing).overlap == 63)
+        #expect(incoming.sliding(by: 4, after: outgoing) == (cueIn: 4, overlap: 0, bassSwap: 0))
+    }
+
+    @Test func aNewTransitionHoldsAudioOfThePreviousTrack() {
+        let a = UUID(), b = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b)]
+        entries[0].cueOutBar = 104
+        entries[1].overlapBars = 0
+        let layout = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(layout.entries[1].sliding(by: -1, after: layout.entries[0]).overlap == 5)
+    }
+
+    @Test func movingAWholeTrackLaterShortensItsTransition() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[1].cueInBar = 4
+        entries[1].overlapBars = 16
+        entries[1].bassSwapBar = 8
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming) = (before.entries[0], before.entries[1])
+
+        // 4 bars bring the track to its first bar, the other 6 shorten the transition.
+        let slid = incoming.sliding(by: 10, after: outgoing)
+        #expect(slid.cueIn == 0 && slid.overlap == 10 && slid.bassSwap == 2)
+        entries[1].cueInBar = slid.cueIn
+        entries[1].overlapBars = slid.overlap
+        entries[1].bassSwapBar = slid.bassSwap
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(after.entries[0] == before.entries[0])
+        #expect(after.entries[1].startBar == incoming.startBar + 6)
+        // The audio, the bass swap and everything after the track move as far as the drag.
+        #expect(after.entries[1].startBar - after.entries[1].cueInBar == incoming.startBar - incoming.cueInBar + 10)
+        #expect(after.entries[1].startBar + after.entries[1].bassSwapBar == incoming.startBar + incoming.bassSwapBar)
+        #expect(after.entries[2].startBar == before.entries[2].startBar + 10)
+    }
+
+    @Test func movingATrackUnderItsTransitionStopsAtItsLimits() {
         let a = UUID(), b = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
             a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
             b: .init(analysis: analysis(bars: 40, phraseOffset: 4, sections: []), duration: nil),
         ]
-        let layout = SetLayout(bpm: 124, entries: [entry(a), entry(b)], tracks: tracks, phraseBars: 8)
+        var entries = [entry(a), entry(b)]
+        entries[0].cueOutBar = 103
+        entries[1].overlapBars = 8
+        let layout = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
         let (outgoing, incoming) = (layout.entries[0], layout.entries[1])
 
-        // Later: silence before the track fills all but the transition's last bar.
-        #expect(incoming.cueIn(movedBy: 1000, after: outgoing) == -(incoming.overlapBars - 1))
+        // Later: no silence before the track; the transition keeps a bar of the outgoing track's audio.
+        let latest = incoming.sliding(by: 1000, after: outgoing)
+        #expect(latest.cueIn == 0 && latest.overlap == 4)
         // Earlier: the track keeps a bar of its own after the transition.
-        #expect(incoming.cueIn(movedBy: -1000, after: outgoing) == incoming.cueOutBar - 1 - incoming.overlapBars)
+        let earliest = incoming.sliding(by: -1000, after: outgoing)
+        #expect(earliest.cueIn == incoming.cueOutBar - 1 - incoming.overlapBars && earliest.overlap == incoming.overlapBars)
     }
 
     @Test func movesTheTransitionWithoutMovingTheTracks() {
@@ -312,6 +446,40 @@ import Testing
         #expect(incoming.trimmingStart(by: -1000, after: outgoing).cueIn == 0)
     }
 
+    @Test func trimmingTheStartPastTheTransitionTakesTheRestOfTheSetAlong() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 96, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[0].cueOutBar = 64
+        entries[1].cueOutBar = 72
+        entries[1].overlapBars = 16
+        entries[1].bassSwapBar = 8
+        entries[2].overlapBars = 8
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming, next) = (before.entries[0], before.entries[1], before.entries[2])
+
+        // 16 bars shorten the transition to nothing, the other 8 start the track further in.
+        let trimmed = incoming.trimmingLeadingEdge(by: 24, after: outgoing, before: next)
+        #expect(trimmed == (cueIn: 24, overlap: 0, bassSwap: 0))
+        entries[1].cueInBar = trimmed.cueIn
+        entries[1].overlapBars = trimmed.overlap
+        entries[1].bassSwapBar = trimmed.bassSwap
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(after.entries[0] == outgoing)
+        #expect(after.entries[1].startBar == outgoing.endBar)
+        #expect(after.entries[2].startBar == next.startBar - 8)
+        #expect(after.entries[2].overlapBars == next.overlapBars)
+
+        // A bar of its own before the transition into the next track; within the transition it only trims.
+        #expect(incoming.trimmingLeadingEdge(by: 1000, after: outgoing, before: next).cueIn == 72 - 1 - 8)
+        #expect(incoming.trimmingLeadingEdge(by: 8, after: outgoing, before: next) == incoming.trimmingStart(by: 8, after: outgoing))
+    }
+
     @Test func trimmingTheFirstStartMovesTheRestOfTheSetAlong() {
         let a = UUID(), b = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
@@ -369,6 +537,72 @@ import Testing
         #expect(outgoing.trimmingEnd(by: -1000, before: incoming).nextOverlap == 0)
         #expect(outgoing.trimmingEnd(by: -24, before: incoming).nextBassSwap == 8)
         #expect(outgoing.trimmingEnd(by: -28, before: incoming).nextBassSwap == 4)
+    }
+
+    @Test func trimmingTheEndPastTheTransitionTakesTheRestOfTheSetAlong() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[0].cueOutBar = 96
+        entries[1].cueInBar = -12
+        entries[1].overlapBars = 16
+        entries[1].bassSwapBar = 12
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming) = (before.entries[0], before.entries[1])
+
+        let (cueOut, overlap, swap) = outgoing.trimmingEnd(by: -40, before: incoming)
+        entries[0].cueOutBar = cueOut
+        entries[1].overlapBars = overlap
+        entries[1].bassSwapBar = swap
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        // The transition keeps a bar of the incoming track's audio; the other 37 bars move the rest of the set.
+        #expect(after.entries[0].cueOutBar == 56)
+        #expect(after.entries[1].overlapBars == 13)
+        #expect(after.entries[1].bassSwapBar == 12)
+        #expect(after.entries[1].cueInBar == incoming.cueInBar)
+        #expect(after.entries[1].startBar == incoming.startBar - 37)
+        #expect(after.entries[2].startBar == before.entries[2].startBar - 37)
+
+        // The outgoing track keeps a bar of its own before the shortest transition.
+        #expect(outgoing.trimmingEnd(by: -1000, before: incoming).cueOut == outgoing.cueInBar + 1 + 13)
+        // Resizing the transition never takes the incoming track along.
+        let resized = incoming.resizingTransition(to: 0, after: outgoing)
+        #expect(resized.previousCueOut == 93 && resized.cueIn == 1 && resized.overlap == 0)
+    }
+
+    @Test func trimmingTheEndPastItsAudioBringsTheNextTrackOver() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        var entries = [entry(a), entry(b), entry(c)]
+        entries[0].cueOutBar = 96
+        entries[1].overlapBars = 0
+        let before = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+        let (outgoing, incoming) = (before.entries[0], before.entries[1])
+
+        // 4 bars play more of the track's audio, the other 4 bring the next track over its end.
+        let trimmed = outgoing.trimmingTrailingEdge(by: 8, before: incoming)
+        #expect(trimmed.cueOut == 100 && trimmed.nextOverlap == 8 && trimmed.nextBassSwap == 4)
+        entries[0].cueOutBar = trimmed.cueOut
+        entries[1].overlapBars = trimmed.nextOverlap
+        entries[1].bassSwapBar = trimmed.nextBassSwap
+        let after = SetLayout(bpm: 124, entries: entries, tracks: tracks, phraseBars: 8)
+
+        #expect(after.entries[1].cueInBar == incoming.cueInBar)
+        #expect(after.entries[1].startBar == incoming.startBar - 4)
+        #expect(after.entries[2].startBar == before.entries[2].startBar - 4)
+        // The next track keeps a bar of its own; with a transition, it only plays more of the track.
+        #expect(outgoing.trimmingTrailingEdge(by: 1000, before: incoming).nextOverlap == 79)
+        let mixed = before.entries[2]
+        #expect(incoming.trimmingTrailingEdge(by: 1000, before: mixed) == incoming.trimmingEnd(by: 1000, before: mixed))
     }
 
     @Test func trimmingTheLastTrackKeepsItsTransitionIn() {

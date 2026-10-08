@@ -189,7 +189,6 @@
 "None" = "Ninguna";
 "Disconnected Device" = "Dispositivo desconectado";
 "The monitor plays through the main output: everyone hears the previews." = "El monitor sale por la salida principal: la pre-escucha la oye todo el mundo.";
-"Previews of transitions ahead of the playhead play through the monitor output while the set goes on." = "Las transiciones que vienen se pre-escuchan por la salida de monitoreo mientras el set sigue sonando.";
 "Sync" = "Sincronización";
 "MIDI Clock Out" = "Salida de MIDI clock";
 "Offset" = "Desfase";
