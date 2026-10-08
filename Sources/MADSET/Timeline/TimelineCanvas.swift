@@ -11,10 +11,16 @@ import MADSETCore
 ///   Dragging the first clip moves its transition out. Each transition has its own handle across
 ///   the gap between the lanes, which lights up under the pointer.
 /// - Drag any other clip to move it under its transition in, which stays where it is: a different
-///   part of the track plays in it.
+///   part of the track plays in it. A clip without a transition in, dragged earlier, moves over the
+///   previous one and opens a transition.
 /// - Drag a clip's leading or trailing edge to trim its start or end, which shortens or lengthens
 ///   its transition without moving either track or the bass swap. The first clip's leading edge
-///   moves its cue in, and the rest of the set with it.
+///   moves its cue in, and the rest of the set with it; a trailing edge shortened past the shortest
+///   transition takes the next clip, and the rest of the set, along; a leading edge, the track
+///   starts further into itself and the rest of the set moves along. The leading edge of a clip
+///   without a transition in, dragged earlier, opens one like dragging the clip; the trailing edge
+///   of a clip without a transition out, dragged past its audio, opens one by bringing the next
+///   clip, and the rest of the set, over it.
 ///   Transitions snap to bars, ⌥ to phrases; they may run into silence before or after a track's
 ///   audio as long as both tracks play in them.
 /// - ⌘-click a clip to add it to the selection or take it out; ⇧-click selects every clip from the
@@ -106,15 +112,15 @@ final class TimelineCanvas: NSView {
 
     /// A value of the arrangement a drag changes, with the placement it had when the drag began.
     private enum Adjustment {
-        /// Which part of a track plays under its transition in; see `PlacedEntry.cueIn(movedBy:after:)`.
+        /// Which part of a track plays under its transition in; see `PlacedEntry.sliding(by:after:)`.
         case slide(PlacedEntry, previous: PlacedEntry)
         /// Where a transition is, with both tracks staying put; see `PlacedEntry.movingTransition(by:after:)`.
         case transition(PlacedEntry, previous: PlacedEntry)
-        /// Where a track starts; see `PlacedEntry.trimmingStart(by:after:)`.
-        case trimStart(PlacedEntry, previous: PlacedEntry)
+        /// Where a track starts; see `PlacedEntry.trimmingLeadingEdge(by:after:before:)`.
+        case trimStart(PlacedEntry, previous: PlacedEntry, next: PlacedEntry?)
         /// Where the first track starts; see `PlacedEntry.firstCueIn(trimmedBy:before:)`.
         case trimFirstStart(PlacedEntry, next: PlacedEntry?)
-        /// Where a track ends; see `PlacedEntry.trimmingEnd(by:before:)`.
+        /// Where a track ends; see `PlacedEntry.trimmingTrailingEdge(by:before:)`.
         case trimEnd(PlacedEntry, next: PlacedEntry?)
         /// Where the lows swap within a transition.
         case bassSwap(PlacedEntry)
@@ -130,13 +136,13 @@ final class TimelineCanvas: NSView {
         func edit(movedBars bars: Int) -> ArrangementEdit? {
             switch self {
             case .slide(let entry, let previous):
-                let cueIn = entry.cueIn(movedBy: bars, after: previous)
-                let overlap = entry.overlapBars
+                let (cueIn, overlap, swap) = entry.sliding(by: bars, after: previous)
                 // The automatic overlap depends on the cues, so the transition keeps its length explicitly.
-                return cueIn == entry.cueInBar ? nil
+                return cueIn == entry.cueInBar && overlap == entry.overlapBars ? nil
                     : ArrangementEdit(name: String(localized: "Move Track"), changes: [(entry.id, {
                         $0.cueInBar = cueIn
                         $0.overlapBars = overlap
+                        $0.bassSwapBar = swap
                     })])
             case .transition(let entry, let previous):
                 let (cueOut, cueIn) = entry.movingTransition(by: bars, after: previous)
@@ -149,9 +155,9 @@ final class TimelineCanvas: NSView {
                             $0.overlapBars = overlap
                         }),
                     ])
-            case .trimStart(let entry, let previous):
-                let (cueIn, overlap, swap) = entry.trimmingStart(by: bars, after: previous)
-                return cueIn == entry.cueInBar ? nil
+            case .trimStart(let entry, let previous, let next):
+                let (cueIn, overlap, swap) = entry.trimmingLeadingEdge(by: bars, after: previous, before: next)
+                return cueIn == entry.cueInBar && overlap == entry.overlapBars ? nil
                     : ArrangementEdit(name: String(localized: "Change Transition"), changes: [(entry.id, {
                         $0.cueInBar = cueIn
                         $0.overlapBars = overlap
@@ -162,8 +168,8 @@ final class TimelineCanvas: NSView {
                 return cueIn == entry.cueInBar ? nil
                     : ArrangementEdit(name: String(localized: "Change Cue In"), changes: [(entry.id, { $0.cueInBar = cueIn })])
             case .trimEnd(let entry, let next):
-                let (cueOut, overlap, swap) = entry.trimmingEnd(by: bars, before: next)
-                guard cueOut != entry.cueOutBar else { return nil }
+                let (cueOut, overlap, swap) = entry.trimmingTrailingEdge(by: bars, before: next)
+                guard cueOut != entry.cueOutBar || overlap != next?.overlapBars else { return nil }
                 var changes: [(Track.ID, (inout SetEntry) -> Void)] = [(entry.id, { $0.cueOutBar = cueOut })]
                 if let next, let overlap, let swap {
                     changes.append((next.id, {
@@ -396,7 +402,7 @@ final class TimelineCanvas: NSView {
             gesture = .adjust(.bassSwap(owner.placed), startX: point.x, edit: nil)
         } else if edge != nil {
             let adjustment: Adjustment = clip.isFirst ? .trimFirstStart(clip.placed, next: clip.next)
-                : .trimStart(clip.placed, previous: clips[index - 1].placed)
+                : .trimStart(clip.placed, previous: clips[index - 1].placed, next: clip.next)
             gesture = .adjust(adjustment, startX: point.x, edit: nil)
         } else if trailingEdge != nil {
             gesture = .adjust(.trimEnd(clip.placed, next: clip.next), startX: point.x, edit: nil)

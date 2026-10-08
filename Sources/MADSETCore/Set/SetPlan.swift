@@ -106,10 +106,14 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     /// Bar of the previous track (its own bar index) where this entry starts to play over it.
     public func mixInBar(after previous: PlacedEntry) -> Int { previous.cueOutBar - overlapBars }
 
+    /// Bar of this track (its own index) where a transition out can start at the earliest: after its
+    /// transition in and a bar of its own, so no more than two tracks play at once.
+    var earliestMixOutBar: Int { cueInBar + overlapBars + 1 }
+
     /// Where the transition from `previous` can start while keeping its length: the previous track
     /// keeps at least one bar of its own before it and cannot play past its last bar.
     public func mixInRange(after previous: PlacedEntry) -> ClosedRange<Int> {
-        let earliest = previous.cueInBar + 1
+        let earliest = previous.earliestMixOutBar
         return earliest...max(earliest, previous.barCount - overlapBars)
     }
 
@@ -132,7 +136,9 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
         var outgoing = previous
         var incoming = self
         func trimEnd(by bars: Int) {
-            let trimmed = outgoing.trimmingEnd(by: bars, before: incoming)
+            // Short of taking the incoming track along.
+            let shortening = min(0, incoming.shortestOverlap(after: outgoing) - incoming.overlapBars)
+            let trimmed = outgoing.trimmingEnd(by: max(bars, shortening), before: incoming)
             outgoing = outgoing.with(cueOut: trimmed.cueOut)
             incoming = incoming.with(overlap: trimmed.nextOverlap!, bassSwap: trimmed.nextBassSwap!)
         }
@@ -165,13 +171,32 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     /// Bars of silence the transition may hold in all, keeping a bar of audio of each track.
     private var silenceLimit: Int { max(0, overlapBars - 1) }
 
-    /// The cue in that moves this track `bars` later in the set while its transition in from `previous`
-    /// stays where it is: a different part of the track plays under it. Keeps at least one bar of
-    /// the track after the transition, and a bar of its audio in it.
-    public func cueIn(movedBy bars: Int, after previous: PlacedEntry) -> Int {
-        let earliest = min(cueInBar, -(silenceLimit - transitionSilence(after: previous).outgoing))
+    /// Moves this track `bars` later in the set while its transition in from `previous` stays where
+    /// it is: a different part of the track plays under it. Moved later than its first bar, the
+    /// track starts later instead and the transition gets that much shorter (see `trimmingStart`),
+    /// rather than opening silence before it. Keeps at least one bar of the track after the transition.
+    /// Without a transition in, moved earlier the track plays over the end of `previous` instead,
+    /// which opens one with the bass swap in its middle; it holds a bar of the previous track's
+    /// audio, which keeps a bar of its own before it.
+    public func sliding(by bars: Int, after previous: PlacedEntry) -> (cueIn: Int, overlap: Int, bassSwap: Int) {
+        if overlapBars == 0, bars < 0 {
+            let overlap = openingTransition(to: -bars, after: previous)
+            return (cueInBar, overlap, overlap / 2)
+        }
         let latest = max(cueInBar, cueOutBar - 1 - overlapBars)
-        return (cueInBar - bars).clamped(to: earliest...latest)
+        let cueIn = (cueInBar - bars).clamped(to: min(cueInBar, 0)...latest)
+        let shortened = trimmingStart(by: max(0, cueIn - (cueInBar - bars)), after: previous)
+        return (cueIn, shortened.overlap, shortened.bassSwap)
+    }
+
+    /// How long the transition from `previous` gets when this track plays `length` bars over its end,
+    /// both keeping their cues: it holds a bar of the previous track's audio, which keeps a bar of its
+    /// own before it, and this track keeps a bar of its own. Never shorter than it is.
+    private func openingTransition(to length: Int, after previous: PlacedEntry) -> Int {
+        let outgoingSilence = max(0, previous.cueOutBar - previous.barCount)
+        let longest = min(previous.cueOutBar - previous.earliestMixOutBar, lengthBars - 1)
+        guard longest > outgoingSilence else { return overlapBars }
+        return max(length, outgoingSilence + 1).clamped(to: overlapBars...max(overlapBars, longest))
     }
 
     /// Starts this track `bars` later without moving its audio, the previous track's end or the bass
@@ -179,11 +204,24 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     /// track's audio, but not into silence before it, and leaves the previous track a bar of its own.
     public func trimmingStart(by bars: Int, after previous: PlacedEntry) -> (cueIn: Int, overlap: Int, bassSwap: Int) {
         let outgoingSilence = transitionSilence(after: previous).outgoing
-        let earliest = min(0, max(overlapBars - (previous.lengthBars - 1), cueInBar >= 0 ? -cueInBar : 0))
+        let earliest = min(0, max(overlapBars - (previous.cueOutBar - previous.earliestMixOutBar), cueInBar >= 0 ? -cueInBar : 0))
         let latest = max(0, overlapBars - (outgoingSilence > 0 ? outgoingSilence + 1 : 0))
         let shift = bars.clamped(to: earliest...latest)
         let overlap = overlapBars - shift
         return (cueInBar + shift, overlap, (bassSwapBar - shift).clamped(to: 0...overlap))
+    }
+
+    /// Where dragging this track's leading edge `bars` later leaves it: `trimmingStart` while the
+    /// transition from `previous` can get shorter. Past the shortest transition the track starts
+    /// further into itself and takes the rest of the set along, keeping a bar of its own before the
+    /// transition into `next`. Without a transition, dragged earlier, it opens one (see `sliding`).
+    public func trimmingLeadingEdge(by bars: Int, after previous: PlacedEntry, before next: PlacedEntry?) -> (cueIn: Int, overlap: Int, bassSwap: Int) {
+        if overlapBars == 0, bars < 0 { return sliding(by: bars, after: previous) }
+        let trimmed = trimmingStart(by: bars, after: previous)
+        let rest = bars - (trimmed.cueIn - cueInBar)
+        guard rest > 0 else { return trimmed }
+        let latest = cueOutBar - 1 - trimmed.overlap - (next?.overlapBars ?? 0)
+        return (max(trimmed.cueIn, min(trimmed.cueIn + rest, latest)), trimmed.overlap, trimmed.bassSwap)
     }
 
     /// The cue in that starts the first track of the set `bars` later into itself: the rest of the
@@ -197,20 +235,35 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
 
     /// Ends this track `bars` later without moving its audio, the next track or its bass swap: the
     /// transition into `next` gets that much longer. It can shrink back through silence past the
-    /// track's audio but not grow into more of it; each track keeps a bar of its own, and the
+    /// track's audio but not grow into more of it. Shortened past the shortest transition, the track
+    /// takes `next`, and the rest of the set, along. Each track keeps a bar of its own, and the
     /// transition keeps a bar of the next track's audio.
     public func trimmingEnd(by bars: Int, before next: PlacedEntry?) -> (cueOut: Int, nextOverlap: Int?, nextBassSwap: Int?) {
-        var earliest = overlapBars + 1 - lengthBars
+        let shortest = next.map { min($0.overlapBars, $0.shortestOverlap(after: self)) } ?? 0
+        let earliest = overlapBars + 1 + shortest - lengthBars
         var latest = max(cueOutBar, barCount) - cueOutBar
-        if let next {
-            let incomingSilence = next.transitionSilence(after: self).incoming
-            earliest = max(earliest, -(next.overlapBars - (incomingSilence > 0 ? incomingSilence + 1 : 0)))
-            latest = min(latest, next.lengthBars - 1 - next.overlapBars)
-        }
+        if let next { latest = min(latest, next.lengthBars - 1 - next.overlapBars) }
         let shift = bars.clamped(to: min(0, earliest)...max(0, latest))
         guard let next else { return (cueOutBar + shift, nil, nil) }
-        let overlap = next.overlapBars + shift
+        let overlap = max(shortest, next.overlapBars + shift)
         return (cueOutBar + shift, overlap, next.bassSwapBar.clamped(to: 0...overlap))
+    }
+
+    /// Where dragging this track's trailing edge `bars` later leaves it and `next`: `trimmingEnd`.
+    /// Without a transition into `next`, dragged past the end of the track's audio, it opens one by
+    /// bringing `next`, and the rest of the set, over the track's end instead.
+    public func trimmingTrailingEdge(by bars: Int, before next: PlacedEntry?) -> (cueOut: Int, nextOverlap: Int?, nextBassSwap: Int?) {
+        let trimmed = trimmingEnd(by: bars, before: next)
+        let rest = bars - (trimmed.cueOut - cueOutBar)
+        guard let next, next.overlapBars == 0, let extended = trimmed.nextOverlap, rest > 0 else { return trimmed }
+        let overlap = next.with(overlap: extended).openingTransition(to: extended + rest, after: with(cueOut: trimmed.cueOut))
+        return (trimmed.cueOut, overlap, overlap / 2)
+    }
+
+    /// The shortest transition from `previous`: one bar of this track's audio past its silence.
+    func shortestOverlap(after previous: PlacedEntry) -> Int {
+        let incomingSilence = transitionSilence(after: previous).incoming
+        return incomingSilence > 0 ? incomingSilence + 1 : 0
     }
 
     /// Moves the transition from `previous` `bars` later without moving either track in the set: the
@@ -219,7 +272,7 @@ public struct PlacedEntry: Sendable, Equatable, Identifiable {
     /// earlier than this track's silence allows, the transition takes the track along: the previous
     /// track ends earlier and this one keeps its cue in.
     public func movingTransition(by bars: Int, after previous: PlacedEntry) -> (previousCueOut: Int, cueIn: Int) {
-        let earliest = min(0, previous.cueInBar + 1 - mixInBar(after: previous))
+        let earliest = min(0, previous.earliestMixOutBar - mixInBar(after: previous))
         let latest = max(0, min(previous.barCount + silenceLimit - previous.cueOutBar, cueOutBar - 1 - overlapBars - cueInBar))
         let shift = bars.clamped(to: earliest...latest)
         return (previous.cueOutBar + shift, cueInBar + max(shift, min(0, -silenceLimit - cueInBar)))
@@ -293,7 +346,8 @@ public struct SetLayout: Sendable, Equatable {
                     outgoing: previousInfo?.analysis, outgoingCueOut: previous.cueOutBar,
                     incoming: info.analysis, incomingCueIn: cueIn, phraseBars: phraseBars
                 )
-                let longest = min(previous.lengthBars, cueOut - cueIn) - 1
+                // The previous track keeps a bar of its own between its transitions: never three tracks at once.
+                let longest = min(previous.lengthBars - previous.overlapBars, cueOut - cueIn) - 1
                 overlap = max(0, min(entry.overlapBars ?? automatic, longest))
                 swap = min(max(0, entry.bassSwapBar ?? overlap / 2), overlap)
                 fadeIn = min(max(0, entry.fadeInBars ?? TransitionPlanner.automaticFadeBars(overlap: overlap)), overlap)
