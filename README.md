@@ -10,7 +10,7 @@ It's beta. It works, I use it, and once in a while it will still surprise you.
 
 ## Install
 
-**macOS 26+, Apple Silicon**
+**macOS 15+, Apple Silicon**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/clasen/MADSET/main/install.sh | bash
@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/clasen/MADSET/main/install.sh | bas
 
 That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`, then offers to open it. To update, close MADSET and run the same command again.
 
-**It needs Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. No Swift on your Mac? The script runs `xcode-select --install` for you, waits while you click **Install** in the dialog, and carries on when it's done. Xcode installed but its license never accepted? It runs `sudo xcodebuild -license accept`, which asks for your Mac password.
+**It needs Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. On macOS 15 they need 15.6 or later, so update macOS first if the script says your Swift is too old. No Swift on your Mac? The script runs `xcode-select --install` for you, waits while you click **Install** in the dialog, and carries on when it's done. Xcode installed but its license never accepted? It runs `sudo xcodebuild -license accept`, which asks for your Mac password.
 
 The build takes well under a minute on an M-series Mac. The app is signed ad hoc on your own machine, so macOS doesn't complain.
 

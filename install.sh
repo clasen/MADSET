@@ -41,7 +41,7 @@ main() {
   fi
   [ "$arch" = arm64 ] || fail 'MADSET needs an Apple Silicon Mac.'
   macos="$(sw_vers -productVersion)"
-  [ "${macos%%.*}" -ge 26 ] || fail "MADSET needs macOS 26 or newer. This Mac runs $macos."
+  [ "${macos%%.*}" -ge 15 ] || fail "MADSET needs macOS 15 or newer. This Mac runs $macos."
 
   command -v curl >/dev/null || fail 'curl is missing.'
   # /usr/bin/swift exists on every Mac as a shim; the toolchain is there once xcode-select has a path.

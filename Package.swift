@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MADSET",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v15)],
     products: [
         .executable(name: "MADSET", targets: ["MADSET"]),
         .executable(name: "madset-bench", targets: ["MADSETBench"]),

@@ -7,7 +7,7 @@ Personal use: runs locally, never distributed, so GPL dependencies are acceptabl
 
 ## Stack
 
-- Swift 6.2 tools / Swift 6 language mode, macOS 26+, Apple Silicon.
+- Swift 6.2 tools / Swift 6 language mode, macOS 15+, Apple Silicon.
 - SwiftUI for the app shell and list, AppKit (`NSView`) for the timeline, AVFoundation for decoding,
   Accelerate (vDSP) for DSP.
 - Swift Package Manager only; no Xcode project.
