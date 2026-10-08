@@ -21,7 +21,7 @@ swift build                                      # debug build of everything
 swift test                                       # core test suite (Swift Testing)
 ./scripts/bundle.sh                              # release build wrapped in build/MADSET.app
 open build/MADSET.app
-MADSET_SIGN_IDENTITY="Developer ID Application: …" MADSET_NOTARY_PROFILE=<profile> ./scripts/release.sh   # signed, notarized build/MADSET-<version>.dmg
+./scripts/release.sh                             # signed, notarized build/MADSET-<version>.dmg
 swift run -c release madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose]
 ```
 
