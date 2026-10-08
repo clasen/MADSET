@@ -118,9 +118,6 @@ private struct DevicesSettings: View {
                 if settings.monitorIsMainOutput {
                     Text("The monitor plays through the main output: everyone hears the previews.")
                         .foregroundStyle(.orange)
-                } else {
-                    Text("Previews of transitions ahead of the playhead play through the monitor output while the set goes on.")
-                        .foregroundStyle(.secondary)
                 }
             }
 
