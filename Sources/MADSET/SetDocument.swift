@@ -386,16 +386,15 @@ final class SetDocument {
     }
 
     /// Moves the playhead, or the monitor head in monitor mode, to the start of the next track past
-    /// where it is or is about to go on from; backwards, to the last track start before that. Moves
+    /// where it is or is about to go on from; backwards, to the start of the track before the one it is
+    /// in there, so a head that has just landed on a track start does not land on it again. Moves
     /// made before a playing one gets to its next bar line chain, so each press goes one track further.
     func moveToTrack(forward: Bool) {
         guard let player = transportPlayer() else { return }
         let layout = layout
         let bar = layout.bar(atTime: player.pendingMove ?? player.currentTime)
-        let starts = layout.entries.map { Double($0.startBar) }
-        let target = forward ? starts.filter { $0 > bar }.min() : starts.filter { $0 < bar }.max()
-        guard let target else { return }
-        play { try player.move(to: layout.time(ofBar: clampedBar(target))) }
+        guard let target = layout.trackStart(from: bar, forward: forward) else { return }
+        play { try player.move(to: layout.time(ofBar: clampedBar(Double(target)))) }
         refreshTransport()
     }
 

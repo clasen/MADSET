@@ -296,6 +296,15 @@ public struct SetLayout: Sendable, Equatable {
         entries.filter { $0.grid != nil && Double($0.startBar) <= bar && bar < Double($0.endBar) }
     }
 
+    /// Start bar of the track after or before the one a head at `bar` is in: the last track started
+    /// by the bar line nearest `bar`. Backwards from the first track, its own start; nil past the end.
+    public func trackStart(from bar: Double, forward: Bool) -> Int? {
+        let starts = entries.map(\.startBar)
+        guard !forward else { return starts.filter { Double($0) > bar }.min() }
+        guard let current = starts.filter({ Double($0) <= bar.rounded() }).max() else { return nil }
+        return starts.filter { $0 < current }.max() ?? current
+    }
+
     /// Bars that `bar` of `old` moves by in this layout when what plays there goes on unchanged:
     /// the same tracks, each at the same place in it, whatever the tempo of each layout. Nil when the
     /// edit changes what plays at `bar`.

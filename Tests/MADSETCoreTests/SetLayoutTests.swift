@@ -141,6 +141,26 @@ import Testing
         #expect(SetLayout(bpm: 124, entries: slid, tracks: tracks, phraseBars: 8).shift(from: before, atBar: mixing) == nil)
     }
 
+    @Test func stepsToTheTrackBeforeOrAfterTheHead() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tracks: [UUID: SetLayout.TrackInfo] = [
+            a: .init(analysis: analysis(bars: 100, sections: []), duration: nil),
+            b: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+            c: .init(analysis: analysis(bars: 80, sections: []), duration: nil),
+        ]
+        let layout = SetLayout(bpm: 124, entries: [entry(a), entry(b), entry(c)], tracks: tracks, phraseBars: 8)
+        let (first, middle, last) = (layout.entries[0].startBar, layout.entries[1].startBar, layout.entries[2].startBar)
+        let landed = Double(middle)
+
+        // A playing head that just landed on B, or a pending move a hair off B's bar line, goes back to A.
+        for bar in [landed, landed + 0.3, landed - 1e-9, landed + 1e-9, landed + 20] {
+            #expect(layout.trackStart(from: bar, forward: false) == first)
+        }
+        #expect(layout.trackStart(from: landed + 0.3, forward: true) == last)
+        #expect(layout.trackStart(from: Double(first) + 5, forward: false) == first)
+        #expect(layout.trackStart(from: Double(last) + 1, forward: true) == nil)
+    }
+
     @Test func keepsTheMixInPointInsideTheOutgoingTrack() {
         let a = UUID(), b = UUID()
         let tracks: [UUID: SetLayout.TrackInfo] = [
