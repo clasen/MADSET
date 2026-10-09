@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "MADSET",
+    name: "Blendline",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "MADSET", targets: ["MADSET"]),
-        .executable(name: "madset-bench", targets: ["MADSETBench"]),
+        .executable(name: "Blendline", targets: ["Blendline"]),
+        .executable(name: "blendline-bench", targets: ["BlendlineBench"]),
     ],
     targets: [
         // Rubber Band Library v4.0.0 (GPL-2.0-or-later), vendored unmodified in Vendor/RubberBand.
@@ -17,10 +17,10 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [.linkedFramework("Accelerate")]
         ),
-        .target(name: "MADSETCore", dependencies: ["CRubberBand"]),
-        .executableTarget(name: "MADSET", dependencies: ["MADSETCore"]),
-        .executableTarget(name: "MADSETBench", dependencies: ["MADSETCore"]),
-        .testTarget(name: "MADSETCoreTests", dependencies: ["MADSETCore"]),
+        .target(name: "BlendlineCore", dependencies: ["CRubberBand"]),
+        .executableTarget(name: "Blendline", dependencies: ["BlendlineCore"]),
+        .executableTarget(name: "BlendlineBench", dependencies: ["BlendlineCore"]),
+        .testTarget(name: "BlendlineCoreTests", dependencies: ["BlendlineCore"]),
     ],
     cxxLanguageStandard: .cxx17
 )

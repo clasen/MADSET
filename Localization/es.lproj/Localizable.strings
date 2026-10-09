@@ -1,4 +1,4 @@
-/* MADSET — Spanish (Rioplatense). Keys are the English strings used in code. */
+/* Blendline — Spanish (Rioplatense). Keys are the English strings used in code. */
 
 /* Window and toolbar */
 "Drop tracks or folders here" = "Arrastrá temas o carpetas acá";
@@ -124,13 +124,13 @@
 "Artist" = "Artista";
 "Genre" = "Género";
 "Time" = "Duración";
-"Energy (Mixed In Key; * estimated by MADSET)" = "Energía (Mixed In Key; * estimada por MADSET)";
+"Energy (Mixed In Key; * estimated by Blendline)" = "Energía (Mixed In Key; * estimada por Blendline)";
 "Energy %lld (Mixed In Key)" = "Energía %lld (Mixed In Key)";
-"Energy %lld estimated by MADSET (no Mixed In Key tag)" = "Energía %lld estimada por MADSET (sin tag de Mixed In Key)";
+"Energy %lld estimated by Blendline (no Mixed In Key tag)" = "Energía %lld estimada por Blendline (sin tag de Mixed In Key)";
 "Analyzing…" = "Analizando…";
 "Error: %@" = "Error: %@";
 "Stretched %@ to the set tempo" = "Estirado %@ al tempo del set";
-"Key detected by MADSET (no Mixed In Key tag)" = "Key detectada por MADSET (sin tag de Mixed In Key)";
+"Key detected by Blendline (no Mixed In Key tag)" = "Key detectada por Blendline (sin tag de Mixed In Key)";
 "Key from Mixed In Key" = "Key de Mixed In Key";
 "bars %lld–%lld" = "compases %lld–%lld";
 "Part of a split track" = "Parte de un tema dividido";

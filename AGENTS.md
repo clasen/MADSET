@@ -1,4 +1,4 @@
-# MADSET
+# Blendline
 
 Native macOS app for building DJ sets and playing them live. Drag in many audio files: it analyzes
 every track (BPM, beatgrid, kick, phases, key and energy fallback) in parallel and lays out a set that's already
@@ -19,35 +19,35 @@ Personal use: runs locally, never distributed, so GPL dependencies are acceptabl
 ```bash
 swift build                                      # debug build of everything
 swift test                                       # core test suite (Swift Testing)
-./scripts/bundle.sh                              # release build wrapped in build/MADSET.app
-open build/MADSET.app
-./scripts/release.sh                             # signed, notarized build/MADSET-<version>.dmg
-swift run -c release madset-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose]
+./scripts/bundle.sh                              # release build wrapped in build/Blendline.app
+open build/Blendline.app
+./scripts/release.sh                             # signed, notarized build/Blendline-<version>.dmg
+swift run -c release blendline-bench <folder> [--limit N] [--no-cache] [--detect-key] [--verbose]
 ```
 
-`madset-bench` analyzes a folder like the app does and compares BPM/key with the Mixed In Key tags.
-Use it after touching anything in `Sources/MADSETCore/Analysis`. The reference library is
+`blendline-bench` analyzes a folder like the app does and compares BPM/key with the Mixed In Key tags.
+Use it after touching anything in `Sources/BlendlineCore/Analysis`. The reference library is
 `/Users/martinclasen/Stuff/MadSky/Discover` (~1000 tracks, MIK-tagged).
 
 ## Layout
 
-- `Sources/MADSETCore/` — everything testable: tags, decoding, analysis, cache, scanning.
+- `Sources/BlendlineCore/` — everything testable: tags, decoding, analysis, cache, scanning.
   - `Config/AppConfig.swift` — the centralized configuration (see below).
   - `Analysis/` — `TrackAnalyzer` orchestrates `BeatTracker`, `StructureAnalyzer`, `KeyDetector`, `EnergyEstimator`, `WaveformBuilder`.
   - `Set/` — `SetEntry`/`SetLayout` (arrangement on the set's bar axis, automatic phase-aligned
-    transitions) and `SetFile` (the `.madset` JSON format).
+    transitions) and `SetFile` (the `.bln` JSON format).
   - `Playback/` — `SetRenderer` mixes a layout block by block (stretch, DJ EQ, transition curves);
     `SetPlayer` plays it through AVAudioEngine from a producer thread and a lock-free ring buffer.
-- `Sources/MADSET/` — the app: `SetDocument` (SwiftUI `DocumentGroup` document: arrangement, undo,
+- `Sources/Blendline/` — the app: `SetDocument` (SwiftUI `DocumentGroup` document: arrangement, undo,
   analysis queue, playback), list, transport, `Timeline/` canvas.
 - `Localization/<lang>.lproj/Localizable.strings` — UI translations, copied into the bundle by `bundle.sh`.
-- `Sources/MADSETBench/` — the benchmark CLI.
-- `Tests/MADSETCoreTests/` — tests; `Synth.swift` builds deterministic synthetic tracks.
-- Generated: `.build/`, `build/`. Analysis cache lives in `~/Library/Caches/MADSET/analysis`.
+- `Sources/BlendlineBench/` — the benchmark CLI.
+- `Tests/BlendlineCoreTests/` — tests; `Synth.swift` builds deterministic synthetic tracks.
+- Generated: `.build/`, `build/`. Analysis cache lives in `~/Library/Caches/Blendline/analysis`.
 
 ## Configuration
 
-Operational settings live in `AppConfig.current` (`Sources/MADSETCore/Config/AppConfig.swift`),
+Operational settings live in `AppConfig.current` (`Sources/BlendlineCore/Config/AppConfig.swift`),
 read as `config.analysis.maxConcurrentTracks`. Pass the config (or its section) down; don't read
 `AppConfig.current` deep inside the core. Algorithm constants (filter cutoffs, thresholds) stay
 next to the algorithm as documented `static let`s.

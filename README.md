@@ -1,8 +1,8 @@
-# MADSET
+# Blendline
 
 A native macOS app for building DJ sets and playing them live. Drag in a pile of tracks and it works out the tempo, the beatgrid, where the drops are, and how to get from one track to the next, so you start from a set that's already mixed. Then it plays the whole thing at one tempo, transitions included, and you keep changing it while it plays. Got a groovebox? Plug it in and it follows the set over MIDI clock.
 
-![MADSET: timeline, decks, transition editor and the set list](docs/screenshots/madset.webp)
+![Blendline: timeline, decks, transition editor and the set list](docs/screenshots/blendline.webp)
 
 The idea is simple: light and powerful. No library to import, no subscription, no Electron. Swift, Accelerate and AVFoundation doing their job. The first time I tried it for real I dragged in about 1000 tracks and it handed me a 100-hour set almost instantly. I didn't need a 100-hour set. Nobody does. But it's good to know it's there.
 
@@ -16,7 +16,7 @@ It's beta. It works, I use it, and once in a while it will still surprise you.
 curl -fsSL https://raw.githubusercontent.com/clasen/MADSET/main/install.sh | bash
 ```
 
-That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/MADSET.app`, then offers to open it. To update, close MADSET and run the same command again.
+That's it. The script downloads the source, builds it with the Swift on your Mac, and installs `~/Applications/Blendline.app`, then offers to open it. To update, close Blendline and run the same command again.
 
 **It needs Swift 6.2 or newer.** Xcode has it, and so do the much lighter Command Line Tools. On macOS 15 they need 15.6 or later, so update macOS first if the script says your Swift is too old. No Swift on your Mac? The script runs `xcode-select --install` for you, waits while you click **Install** in the dialog, and carries on when it's done. Xcode installed but its license never accepted? It runs `sudo xcodebuild -license accept`, which asks for your Mac password.
 
@@ -26,21 +26,21 @@ Piping a script into your shell is a matter of trust. If you'd rather read it fi
 
 ## Tag your tracks with Mixed In Key first
 
-MADSET does its own tempo, beatgrid and structure analysis. Key and energy it borrows from [Mixed In Key](https://mixedinkey.com), which does them better than anything I'd write in a weekend.
+Blendline does its own tempo, beatgrid and structure analysis. Key and energy it borrows from [Mixed In Key](https://mixedinkey.com), which does them better than anything I'd write in a weekend.
 
-If your files carry MIK's tags (key in Camelot, energy 1 to 10), MADSET reads them and everything clicks: harmonic ordering, the energy column, and the **set curve** that warms up, peaks and lands. Untagged tracks still work. MADSET detects the key itself, a bit less reliably, but there's no energy to go on, so those tracks end up at the end when you order by curve or energy.
+If your files carry MIK's tags (key in Camelot, energy 1 to 10), Blendline reads them and everything clicks: harmonic ordering, the energy column, and the **set curve** that warms up, peaks and lands. Untagged tracks still work. Blendline detects the key itself, a bit less reliably, but there's no energy to go on, so those tracks end up at the end when you order by curve or energy.
 
 So: run your folder through Mixed In Key once, then drag it in here. Worth it.
 
 ## Or make it yours
 
-MADSET is a plain Swift package. No Xcode project, nothing to configure:
+Blendline is a plain Swift package. No Xcode project, nothing to configure:
 
 ```bash
 git clone https://github.com/clasen/MADSET.git
 cd MADSET
 ./scripts/bundle.sh
-open build/MADSET.app
+open build/Blendline.app
 ```
 
 `swift build` and `swift test` work as you'd expect. [AGENTS.md](AGENTS.md) explains how the code is laid out, which is handy if you'd rather point a coding agent at it and ask for the thing you're missing.
@@ -48,7 +48,7 @@ open build/MADSET.app
 Touching the analysis? There's a benchmark that analyzes a folder like the app does and compares BPM and key against the Mixed In Key tags:
 
 ```bash
-swift run -c release madset-bench ~/Music/SomeFolder --limit 200
+swift run -c release blendline-bench ~/Music/SomeFolder --limit 200
 ```
 
 ## Why bother
@@ -59,7 +59,7 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 
 **One tempo for the whole set.** It starts on the median of your tracks; pick another set BPM or press Auto to take the median again. Edits never change it, so a track removed live doesn't retempo the set. Every track is stretched to it in real time with [Rubber Band](https://breakfastquay.com/rubberband/).
 
-**Bring a groovebox.** MADSET sends MIDI clock, start, stop and song position locked to the set's beats and bars, so whatever is on that port plays in time with the kick and its patterns start on the bar. An offset in Settings makes up for the latency.
+**Bring a groovebox.** Blendline sends MIDI clock, start, stop and song position locked to the set's beats and bars, so whatever is on that port plays in time with the kick and its patterns start on the bar. An offset in Settings makes up for the latency.
 
 **Order by what matters.** Sort the set, or just the selected tracks, by set curve, energy, key (a walk around the Camelot wheel) or BPM. Undo if it's worse.
 
@@ -73,7 +73,7 @@ swift run -c release madset-bench ~/Music/SomeFolder --limit 200
 - DJ-style EQ and transition curves, so the mix sounds like a mix and not a crossfade
 - Split a track at any bar and arrange the two halves like separate tracks
 - Duplicate check on import, because that one track always shows up twice
-- Sets live in `~/Music/MADSET`, folders are groups, and everything saves itself. Browse other sets without stopping playback
+- Sets live in `~/Music/Blendline`, folders are groups, and everything saves itself. Browse other sets without stopping playback
 - Export the whole mix as WAV or AAC
 - MIDI clock out, locked to the set's beats and bars, so a groovebox plays along and keeps going when the playhead jumps
 - English and Spanish, switchable in Settings
